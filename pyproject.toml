@@ -3,7 +3,8 @@ name = "gaussiansampler"
 version = "0.0.1"
 description = "A gaussian splatting sampler and filterer of images which aims to eliminate bad quality ones, most importantly those that view things outside of the splat."
 readme = "README.md"
-requres-python = "~=3.13.0"
+requires-python = ">=3.13"
+license = { text = "MIT" }
 authors = [
   { name = "malevitzch", email = "malevitzch@gmail.com" }
 ]
