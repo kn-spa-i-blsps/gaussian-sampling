@@ -1,0 +1,17 @@
+[project]
+name = "gaussiansampler"
+version = "0.0.1"
+description = "A gaussian splatting sampler and filterer of images which aims to eliminate bad quality ones, most importantly those that view things outside of the splat."
+readme = "README.md"
+requres-python = "~=3.13.0"
+authors = [
+  { name = "malevitzch", email = "malevitzch@gmail.com" }
+]
+keywords = ["gaussian-splatting"]
+
+dependencies = [
+  "numpy>=1.26.0",
+  "pillow>=10.0.0",
+  "torch>=2.10.0",
+  "gsplat",
+]
