@@ -1,6 +1,8 @@
 *
-
 !scripts/
+!scripts/*.py
+
+!src/
 !src/filtering/*.py
 !src/sampling/*.py
 
