@@ -20,15 +20,15 @@ def load_ply_to_splats(path, device="cuda"):
 
   # higher-order SH coeffs, if present
   rest_keys = sorted(
-      [n for n in v.data.dtype.names if n.startswith("f_rest_")],
-      key=lambda s: int(s.split("_")[-1]),
+    [n for n in v.data.dtype.names if n.startswith("f_rest_")],
+    key=lambda s: int(s.split("_")[-1]),
   )
   if rest_keys:
-      shN = np.stack([v[k] for k in rest_keys], axis=-1)
-      n_coeffs = shN.shape[-1] // 3
-      shN = shN.reshape(-1, 3, n_coeffs).transpose(0, 2, 1)
+    shN = np.stack([v[k] for k in rest_keys], axis=-1)
+    n_coeffs = shN.shape[-1] // 3
+    shN = shN.reshape(-1, 3, n_coeffs).transpose(0, 2, 1)
   else:
-      shN = np.zeros((means.shape[0], 0, 3), dtype=np.float32)
+    shN = np.zeros((means.shape[0], 0, 3), dtype=np.float32)
 
   def to_t(a):
     return torch.from_numpy(np.ascontiguousarray(a)).float().to(device)
@@ -43,6 +43,27 @@ def load_ply_to_splats(path, device="cuda"):
 class SamplingEngine:
   def __init__(self, ply_path: str):
     self.splats = load_ply_to_splats(ply_path)
+    self.colors = torch.cat([self.splats["sh0"], self.splats["shN"]], dim=-2)
+    self.sh_degree = int(math.sqrt(self.colors.shape[-2]) - 1)
+    self.quats_normalized = torch.nn.functional.normalize(self.splats["quats"], p=2, dim=-1)
+
+    # This is needed to force JIT compilation of gsplat kernels
+    # and warm up CUDA so that later rasterization runs smoothly.
+    self._warmup()
+
+  def _warmup(self, width=512, height=512, iters=2):
+    device = self.splats["means"].device
+    c2w = torch.eye(4, device=device, dtype=torch.float32)
+    K = torch.tensor(
+      [[width, 0, width / 2],
+        [0, width, height / 2],
+        [0, 0, 1]],
+      device=device, dtype=torch.float32,
+    )
+    with torch.no_grad():
+      for _ in range(iters):
+        _ = self.sample(c2w, K, width, height)
+    torch.cuda.synchronize()
 
   def sample(self, c2w, K, width, height, bg_color=bg_pink):
     """
@@ -56,21 +77,18 @@ class SamplingEngine:
     K = torch.as_tensor(K, dtype=torch.float32, device=device)
     viewmat = c2w.inverse()
 
-    colors = torch.cat([self.splats["sh0"], self.splats["shN"]], dim=-2)
-    sh_degree = int(math.sqrt(colors.shape[-2]) - 1)
-
     render_colors, _, _ = rasterization(
       self.splats["means"],
-      torch.nn.functional.normalize(self.splats["quats"], p=2, dim=-1),
+      self.quats_normalized,
       self.splats["scales"].exp(),
       self.splats["opacities"].sigmoid(),
-      colors,
+      self.colors,
       viewmat[None],
       K[None],
       width,
       height,
       packed=False,
-      sh_degree=sh_degree,
+      sh_degree=self.sh_degree,
       backgrounds=bg_color,
     )
     return render_colors[0, ..., :3].clamp(0, 1)

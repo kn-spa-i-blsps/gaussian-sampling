@@ -1,0 +1,9 @@
+*
+
+!scripts/
+!src/filtering/*.py
+!src/sampling/*.py
+
+!.gitignore
+!pyproject.toml
+!README.md
