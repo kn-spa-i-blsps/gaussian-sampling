@@ -21,15 +21,30 @@ import numpy as np
 import torch
 import pygame
 import time
+import argparse
 from PIL import Image
 
 from sampling.sampling_engine import SamplingEngine
 
-PLY_PATH = "splat.ply"
+import threading
+import queue
+
+save_queue = queue.Queue()
+
+def save_worker():
+  while True:
+    item = save_queue.get()
+    if item is None:        # sentinel → shut down
+        break
+    path, arr = item
+    Image.fromarray(arr).save(path)
+    save_queue.task_done()
+
+
+
 WIDTH, HEIGHT = 800, 600
 FOV_DEG = 60.0
 
-MOVE_SPEED = 2.0          # world units per second
 TURN_SPEED = 1.5          # radians per second
 
 RECORD_DIR = "recording"
@@ -50,7 +65,6 @@ def build_K(width, height, fov_deg):
 
 
 def axis_angle_rotation(axis, angle):
-  """Rodrigues' rotation formula: rotation matrix for `angle` radians about `axis`."""
   axis = axis / np.linalg.norm(axis)
   x, y, z = axis
   c, s = math.cos(angle), math.sin(angle)
@@ -83,12 +97,26 @@ def build_c2w(position, R):
 
 
 def main():
+  parser = argparse.ArgumentParser()
+
+  save_thread = threading.Thread(target=save_worker, daemon=True)
+  save_thread.start()
+
+  parser.add_argument("splat_path", type=str)
+  parser.add_argument("--move_speed", type=float, default=2.0)
+  parser.add_argument("--invert_y", type=bool, default=False)
+  parser.add_argument("--record_fps", type=float, default=10.0)
+  args = parser.parse_args()
+
+  record_tick = 1.0 / args.record_fps
+  last_record_time = time.time()
+
   pygame.init()
   screen = pygame.display.set_mode((WIDTH, HEIGHT))
   pygame.display.set_caption("Gaussian Splat Viewer")
   clock = pygame.time.Clock()
 
-  engine = SamplingEngine(PLY_PATH)
+  engine = SamplingEngine(args.splat_path)
   K = build_K(WIDTH, HEIGHT, FOV_DEG)
 
   position = np.array([0.0, 0.0, -3.0], dtype=np.float32)
@@ -125,9 +153,9 @@ def main():
     # If up/down feel inverted, flip the sign on these two lines.
     local_right = np.array([1.0, 0.0, 0.0], dtype=np.float32)
     if keys[pygame.K_UP]:
-      R = R @ axis_angle_rotation(local_right, -TURN_SPEED * dt)
+      R = R @ axis_angle_rotation(local_right, (-1 if args.invert_y else 1) * -TURN_SPEED * dt)
     if keys[pygame.K_DOWN]:
-      R = R @ axis_angle_rotation(local_right, TURN_SPEED * dt)
+      R = R @ axis_angle_rotation(local_right, (-1 if args.invert_y else 1) * TURN_SPEED * dt)
 
     # --- movement (WASD + Q/E) ---
     right = R[:, 0]
@@ -151,7 +179,7 @@ def main():
 
     norm = np.linalg.norm(move)
     if norm > 0:
-      position += (move / norm) * MOVE_SPEED * dt
+      position += (move / norm) * args.move_speed * dt
 
     c2w = build_c2w(position, R)
 
@@ -167,14 +195,18 @@ def main():
 
     if recording:
       pygame.draw.circle(screen, (255, 0, 0), (20, 20), 8)
-      Image.fromarray(image_np).save(
-        os.path.join(RECORD_DIR, f"frame_{frame_idx:05d}.png")
-      )
-      frame_idx += 1
+      if time.time() - last_record_time >= record_tick:
+        last_record_time = time.time()
+        path = os.path.join(RECORD_DIR, f"frame_{frame_idx:05d}.png")
+        save_queue.put((path, image_np.copy()))
+        frame_idx += 1
 
     pygame.display.flip()
 
   pygame.quit()
+  save_queue.put(None)
+  print("Waiting for save queue to finish...")
+  save_thread.join()
 
 
 if __name__ == "__main__":
