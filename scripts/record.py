@@ -4,15 +4,9 @@ Interactive viewer for a Gaussian Splat scene rendered with gsplat.
 Controls:
   W / A / S / D   - move forward / left / back / right
   Q / E           - move down / up
-  Arrow keys      - look around (Left/Right = yaw, Up/Down = pitch, full 360 range)
-  SPACE           - toggle frame recording (saves PNGs to ./recording/)
+  Arrow keys      - look around (Left/Right = yaw, Up/Down = pitch)
+  SPACE           - toggle frame recording
   ESC             - quit
-
-Dependencies: pygame, pillow, torch, gsplat, numpy
-    pip install pygame pillow
-
-Run:
-    python splat_viewer.py
 """
 
 import os
@@ -34,10 +28,11 @@ save_queue = queue.Queue()
 # Black background for unmarked frames
 unmarked_bg_color = torch.tensor([0.0, 0.0, 0.0], device="cuda", dtype=torch.float32).unsqueeze(0)
 
+# Uses a 'None' sentinel value for shutdown
 def save_worker():
   while True:
     item = save_queue.get()
-    if item is None:        # sentinel → shut down
+    if item is None:
         break
     path, arr = item
     Image.fromarray(arr).save(path)
@@ -48,7 +43,7 @@ def save_worker():
 WIDTH, HEIGHT = 800, 600
 FOV_DEG = 60.0
 
-TURN_SPEED = 1.5          # radians per second
+TURN_SPEED = 1.5
 
 WORLD_UP = np.array([0.0, 1.0, 0.0], dtype=np.float32)
 
@@ -209,12 +204,14 @@ def main():
 
   if recording:
     print("Recording: OFF")
-
   pygame.quit()
+
   save_queue.put(None)
-  print("Waiting for save queue to finish...")
+  if frame_idx > 0:
+    print("Waiting for save queue to finish...")
   save_thread.join()
-  print(f"Saved {frame_idx} frames to {args.record_dir}")
+  if frame_idx > 0:
+    print(f"Saved {frame_idx} frames to {args.record_dir}")
 
 
 if __name__ == "__main__":

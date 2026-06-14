@@ -3,6 +3,7 @@
 !scripts/*.py
 
 !src/
+!src/filtering/
 !src/filtering/*.py
 !src/sampling/*.py
 
