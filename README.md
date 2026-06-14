@@ -1,6 +1,5 @@
 # gaussian-sampling
+A Python-based library for data augumentation using gaussian splatting.
 
-For the lastest version for gsplat which supports convenient loading of PLY files:
-```
-pip install git+https://github.com/nerfstudio-project/gsplat.git --no-build-isolation
-```
+The project aims to streamline the process of data augumentation using gaussian splatting 
+by automating sampling and image filtering.
