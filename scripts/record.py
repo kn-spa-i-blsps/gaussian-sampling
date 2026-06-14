@@ -31,6 +31,9 @@ import queue
 
 save_queue = queue.Queue()
 
+# Black background for unmarked frames
+unmarked_bg_color = torch.tensor([0.0, 0.0, 0.0], device="cuda", dtype=torch.float32).unsqueeze(0)
+
 def save_worker():
   while True:
     item = save_queue.get()
@@ -46,8 +49,6 @@ WIDTH, HEIGHT = 800, 600
 FOV_DEG = 60.0
 
 TURN_SPEED = 1.5          # radians per second
-
-RECORD_DIR = "recording"
 
 WORLD_UP = np.array([0.0, 1.0, 0.0], dtype=np.float32)
 
@@ -106,6 +107,7 @@ def main():
   parser.add_argument("--move_speed", type=float, default=2.0)
   parser.add_argument("--invert_y", type=bool, default=False)
   parser.add_argument("--record_fps", type=float, default=10.0)
+  parser.add_argument("--record_dir", type=str, default="recording")
   args = parser.parse_args()
 
   record_tick = 1.0 / args.record_fps
@@ -124,11 +126,13 @@ def main():
 
   recording = False
   frame_idx = 0
-  os.makedirs(RECORD_DIR, exist_ok=True)
+  os.makedirs(args.record_dir, exist_ok=True)
+  os.makedirs(os.path.join(args.record_dir, "marked"), exist_ok=True)
+  os.makedirs(os.path.join(args.record_dir, "unmarked"), exist_ok=True)
 
   running = True
   while running:
-    dt = clock.tick(60) / 1000.0  # seconds since last frame
+    dt = clock.tick(60) / 1000.0
 
     for event in pygame.event.get():
       if event.type == pygame.QUIT:
@@ -142,15 +146,13 @@ def main():
 
     keys = pygame.key.get_pressed()
 
-    # --- look (arrow keys), full 360 range, no gimbal lock ---
-    # Yaw: rotate the whole camera frame about the world up axis (pre-multiply).
+    # Left and right rotation
     if keys[pygame.K_LEFT]:
       R = axis_angle_rotation(WORLD_UP, -TURN_SPEED * dt) @ R
     if keys[pygame.K_RIGHT]:
       R = axis_angle_rotation(WORLD_UP, TURN_SPEED * dt) @ R
 
-    # Pitch: rotate about the camera's own current right axis (post-multiply).
-    # If up/down feel inverted, flip the sign on these two lines.
+    # Up and down rotation (pitch)
     local_right = np.array([1.0, 0.0, 0.0], dtype=np.float32)
     if keys[pygame.K_UP]:
       R = R @ axis_angle_rotation(local_right, (-1 if args.invert_y else 1) * -TURN_SPEED * dt)
@@ -160,8 +162,6 @@ def main():
     # --- movement (WASD + Q/E) ---
     right = R[:, 0]
     forward = R[:, 2]
-    # R[:,1] is the camera's "down" axis (OpenCV convention), so "up" is its negation.
-    cam_up = -R[:, 1]
 
     move = np.zeros(3, dtype=np.float32)
     if keys[pygame.K_w]:
@@ -183,13 +183,11 @@ def main():
 
     c2w = build_c2w(position, R)
 
-    # --- render ---
     with torch.no_grad():
       image = engine.sample(c2w, K, WIDTH, HEIGHT)
 
-    image_np = (image.cpu().numpy() * 255).astype(np.uint8)  # (H, W, 3)
+    image_np = (image.cpu().numpy() * 255).astype(np.uint8)
 
-    # pygame surfarray wants (W, H, 3)
     surf = pygame.surfarray.make_surface(image_np.transpose(1, 0, 2))
     screen.blit(surf, (0, 0))
 
@@ -197,16 +195,26 @@ def main():
       pygame.draw.circle(screen, (255, 0, 0), (20, 20), 8)
       if time.time() - last_record_time >= record_tick:
         last_record_time = time.time()
-        path = os.path.join(RECORD_DIR, f"frame_{frame_idx:05d}.png")
+        path = os.path.join(args.record_dir, "marked", f"frame_{frame_idx:05d}.png")
+        save_queue.put((path, image_np.copy()))
+
+        with torch.no_grad():
+          image = engine.sample(c2w, K, WIDTH, HEIGHT, bg_color=unmarked_bg_color)
+        image_np = (image.cpu().numpy() * 255).astype(np.uint8)
+        path = os.path.join(args.record_dir, "unmarked", f"frame_{frame_idx:05d}.png")
         save_queue.put((path, image_np.copy()))
         frame_idx += 1
 
     pygame.display.flip()
 
+  if recording:
+    print("Recording: OFF")
+
   pygame.quit()
   save_queue.put(None)
   print("Waiting for save queue to finish...")
   save_thread.join()
+  print(f"Saved {frame_idx} frames to {args.record_dir}")
 
 
 if __name__ == "__main__":
