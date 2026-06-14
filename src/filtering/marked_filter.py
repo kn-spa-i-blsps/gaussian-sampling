@@ -13,15 +13,21 @@ class MarkedScorer:
         from the mark color. With higher alphas the scorer scores colors similar to
         mark_color higher.
       - Should be in the range (0, inf).
+    beta:
+      - Controls the power mean, a higher beta increases the sensitivity to having any
+        marked pixels in the image.
+      - Should be in the range (0, inf), beta=1 is regular mean.
   """
-  def __init__(self, alpha=0.001, mark_color=np.array([255, 0, 255])):
+  def __init__(self, alpha=0.001, beta=1.0, mark_color=np.array([255, 0, 255])):
     self._mark_color = mark_color
     self._alpha = alpha
+    self._beta = beta
 
   def score_image(self, img):
     diff = img.astype(np.float32) - self._mark_color
     dist = np.linalg.norm(diff, axis=-1) / self.MAX_DIST
-    return 1 - (dist ** self._alpha).mean()
+    pixel_scores = 1 - dist ** self._alpha
+    return (pixel_scores ** self._beta).mean() ** (1 / self._beta)
 
 
   def score_files(self, img_paths):
