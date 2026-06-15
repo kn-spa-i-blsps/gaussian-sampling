@@ -8,10 +8,11 @@ if __name__ == "__main__":
   parser.add_argument("dir", help="Directory containing marked images.")
   parser.add_argument("--alpha", type=float, default=0.001, help="Alpha parameter for the scorer.")
   parser.add_argument("--beta", type=float, default=1.0, help="Alpha parameter for the scorer.")
+  parser.add_argument("--workers", type=int, default=1, help="Number of worker threads to use for scoring.")
 
   args = parser.parse_args()
 
-  scorer = MarkedScorer(alpha=args.alpha, beta=args.beta)
+  scorer = MarkedScorer(alpha=args.alpha, beta=args.beta, max_workers=args.workers)
   files = list(Path(args.dir).glob("*.png"))
   results = scorer.score_files(files)
   sorted_results = sorted(results, key=lambda x: x[1], reverse=True)

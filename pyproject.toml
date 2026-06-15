@@ -13,6 +13,6 @@ keywords = ["gaussian-splatting"]
 dependencies = [
   "numpy>=1.26.0",
   "pillow>=10.0.0",
-  "torch>=2.10.0",
+  "torch>=2.6",
   "gsplat",
 ]

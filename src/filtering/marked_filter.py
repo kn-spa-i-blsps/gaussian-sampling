@@ -1,5 +1,8 @@
+from tkinter.constants import N
+
 import numpy as np
 from PIL import Image
+from concurrent.futures import ThreadPoolExecutor
 
 class MarkedScorer:
   MAX_DIST = np.sqrt(3 * 255**2)
@@ -18,10 +21,12 @@ class MarkedScorer:
         marked pixels in the image.
       - Should be in the range (0, inf), beta=1 is regular mean.
   """
-  def __init__(self, alpha=0.001, beta=1.0, mark_color=np.array([255, 0, 255])):
+  def __init__(self, alpha=0.001, beta=1.0, mark_color=np.array([255, 0, 255]),
+               max_workers=1):
     self._mark_color = mark_color
     self._alpha = alpha
     self._beta = beta
+    self._max_workers = max_workers
 
   def score_image(self, img):
     diff = img.astype(np.float32) - self._mark_color
@@ -29,10 +34,12 @@ class MarkedScorer:
     pixel_scores = 1 - dist ** self._alpha
     return (pixel_scores ** self._beta).mean() ** (1 / self._beta)
 
+  def score_file(self, img_path):
+    img = np.array(Image.open(img_path))
+    return self.score_image(np.asarray(img))
 
   def score_files(self, img_paths):
-    scores = []
-    for path in img_paths:
-      img = np.array(Image.open(path))
-      scores.append((path, self.score_image(np.array(img))))
-    return np.array(scores)
+    workers = None if self._max_workers == -1 else self._max_workers
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+      scores = np.array(list(executor.map(lambda p: (p, self.score_file(p)), img_paths)))
+    return scores
