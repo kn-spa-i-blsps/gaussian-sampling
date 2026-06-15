@@ -22,6 +22,6 @@ if __name__ == "__main__":
     exit(1)
   files = list(Path(args.dir).glob("*.png"))
   results = scorer.score_files(files)
-  sorted_results = sorted(results, key=lambda x: x[1], reverse=True)
+  sorted_results = sorted(zip(files, results), key=lambda x: x[1], reverse=True)
   for file, score in sorted_results:
     print(f"{file.name}: {score:.6f}")

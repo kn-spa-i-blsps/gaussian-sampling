@@ -1,8 +1,6 @@
-from tkinter.constants import N
-
 import numpy as np
 from PIL import Image
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 
 class MarkedScorer:
   MAX_DIST = np.sqrt(3 * 255**2)
@@ -40,6 +38,6 @@ class MarkedScorer:
 
   def score_files(self, img_paths):
     workers = None if self._max_workers == -1 else self._max_workers
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-      scores = np.array(list(executor.map(lambda p: (p, self.score_file(p)), img_paths)))
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+      scores = np.array(list(executor.map(self.score_file, img_paths)))
     return scores

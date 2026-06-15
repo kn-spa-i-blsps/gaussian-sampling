@@ -13,7 +13,6 @@ import os
 import math
 import numpy as np
 import torch
-import pygame
 import time
 import argparse
 from PIL import Image
@@ -92,23 +91,12 @@ def build_c2w(position, R):
   return c2w
 
 
-def main():
-  parser = argparse.ArgumentParser()
+def main(args):
+  # Importing pygame initializes SDL so we don't want to do it before parsing args
+  import pygame
 
   save_thread = threading.Thread(target=save_worker, daemon=True)
   save_thread.start()
-
-  parser.add_argument("splat_path", type=str,
-                      help="Path to the .ply file.")
-  parser.add_argument("--move_speed", type=float, default=2.0,
-                      help="Camera movement speed.")
-  parser.add_argument("--invert_y", type=bool, default=False,
-                      help="Invert Y-axis rotation.")
-  parser.add_argument("--record_fps", type=float, default=10.0,
-                      help="Frames per second for recording.")
-  parser.add_argument("--record_dir", type=str, default="recording",
-                      help="Directory to save recorded frames.")
-  args = parser.parse_args()
 
   record_tick = 1.0 / args.record_fps
   last_record_time = time.time()
@@ -220,4 +208,18 @@ def main():
 
 
 if __name__ == "__main__":
-  main()
+  parser = argparse.ArgumentParser()
+
+  parser.add_argument("splat_path", type=str,
+                      help="Path to the .ply file.")
+  parser.add_argument("--move_speed", type=float, default=2.0,
+                      help="Camera movement speed.")
+  parser.add_argument("--invert_y", type=bool, default=False,
+                      help="Invert Y-axis rotation.")
+  parser.add_argument("--record_fps", type=float, default=10.0,
+                      help="Frames per second for recording.")
+  parser.add_argument("--record_dir", type=str, default="recording",
+                      help="Directory to save recorded frames.")
+  args = parser.parse_args()
+
+  main(args)
