@@ -98,11 +98,16 @@ def main():
   save_thread = threading.Thread(target=save_worker, daemon=True)
   save_thread.start()
 
-  parser.add_argument("splat_path", type=str)
-  parser.add_argument("--move_speed", type=float, default=2.0)
-  parser.add_argument("--invert_y", type=bool, default=False)
-  parser.add_argument("--record_fps", type=float, default=10.0)
-  parser.add_argument("--record_dir", type=str, default="recording")
+  parser.add_argument("splat_path", type=str,
+                      help="Path to the .ply file.")
+  parser.add_argument("--move_speed", type=float, default=2.0,
+                      help="Camera movement speed.")
+  parser.add_argument("--invert_y", type=bool, default=False,
+                      help="Invert Y-axis rotation.")
+  parser.add_argument("--record_fps", type=float, default=10.0,
+                      help="Frames per second for recording.")
+  parser.add_argument("--record_dir", type=str, default="recording",
+                      help="Directory to save recorded frames.")
   args = parser.parse_args()
 
   record_tick = 1.0 / args.record_fps
