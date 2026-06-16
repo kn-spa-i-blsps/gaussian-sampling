@@ -37,15 +37,8 @@ def save_worker():
     Image.fromarray(arr).save(path)
     save_queue.task_done()
 
-
-
-WIDTH, HEIGHT = 800, 600
-FOV_DEG = 60.0
-
-TURN_SPEED = 1.5
-
+# This can be configured later, should be kept in a file or something
 WORLD_UP = np.array([0.0, 1.0, 0.0], dtype=np.float32)
-
 
 def build_K(width, height, fov_deg):
   f = 0.5 * width / math.tan(math.radians(fov_deg) / 2.0)
@@ -102,12 +95,12 @@ def main(args):
   last_record_time = time.time()
 
   pygame.init()
-  screen = pygame.display.set_mode((WIDTH, HEIGHT))
+  screen = pygame.display.set_mode((args.width, args.height))
   pygame.display.set_caption("Gaussian Splat Viewer")
   clock = pygame.time.Clock()
 
   engine = SamplingEngine(args.splat_path)
-  K = build_K(WIDTH, HEIGHT, FOV_DEG)
+  K = build_K(args.width, args.height, args.fov)
 
   position = np.array([0.0, 0.0, -3.0], dtype=np.float32)
   R = initial_rotation()  # camera-to-world rotation; columns = [right, down, forward]
@@ -136,16 +129,16 @@ def main(args):
 
     # Left and right rotation
     if keys[pygame.K_LEFT]:
-      R = axis_angle_rotation(WORLD_UP, -TURN_SPEED * dt) @ R
+      R = axis_angle_rotation(WORLD_UP, -args.turn_speed * dt) @ R
     if keys[pygame.K_RIGHT]:
-      R = axis_angle_rotation(WORLD_UP, TURN_SPEED * dt) @ R
+      R = axis_angle_rotation(WORLD_UP, args.turn_speed * dt) @ R
 
     # Up and down rotation (pitch)
     local_right = np.array([1.0, 0.0, 0.0], dtype=np.float32)
     if keys[pygame.K_UP]:
-      R = R @ axis_angle_rotation(local_right, (-1 if args.invert_y else 1) * -TURN_SPEED * dt)
+      R = R @ axis_angle_rotation(local_right, (-1 if args.invert_y else 1) * -args.turn_speed * dt)
     if keys[pygame.K_DOWN]:
-      R = R @ axis_angle_rotation(local_right, (-1 if args.invert_y else 1) * TURN_SPEED * dt)
+      R = R @ axis_angle_rotation(local_right, (-1 if args.invert_y else 1) * args.turn_speed * dt)
 
     # --- movement (WASD + Q/E) ---
     right = R[:, 0]
@@ -172,7 +165,7 @@ def main(args):
     c2w = build_c2w(position, R)
 
     with torch.no_grad():
-      image = engine.sample(c2w, K, WIDTH, HEIGHT)
+      image = engine.sample(c2w, K, args.width, args.height)
 
     image_np = (image.cpu().numpy() * 255).astype(np.uint8)
 
@@ -187,7 +180,7 @@ def main(args):
         save_queue.put((path, image_np.copy()))
 
         with torch.no_grad():
-          image = engine.sample(c2w, K, WIDTH, HEIGHT, bg_color=unmarked_bg_color)
+          image = engine.sample(c2w, K, args.width, args.height, bg_color=unmarked_bg_color)
         image_np = (image.cpu().numpy() * 255).astype(np.uint8)
         path = os.path.join(args.record_dir, "unmarked", f"frame_{frame_idx:05d}.png")
         save_queue.put((path, image_np.copy()))
@@ -214,12 +207,24 @@ if __name__ == "__main__":
                       help="Path to the .ply file.")
   parser.add_argument("--move_speed", type=float, default=2.0,
                       help="Camera movement speed.")
+  parser.add_argument("--turn_speed", type=float, default=1.5,
+                      help="Camera turn speed (radians per second).")
   parser.add_argument("--invert_y", type=bool, default=False,
                       help="Invert Y-axis rotation.")
   parser.add_argument("--record_fps", type=float, default=10.0,
                       help="Frames per second for recording.")
   parser.add_argument("--record_dir", type=str, default="recording",
                       help="Directory to save recorded frames.")
+  parser.add_argument("-W", "--width", type=int, default=800,
+                      help="Recording window width in pixels.")
+  parser.add_argument("-H", "--height", type=int, default=600,
+                      help="Recording window height in pixels.")
+  parser.add_argument("--fov", type=float, default=60.0,
+                      help="Camera field of view in degrees.")
   args = parser.parse_args()
+
+  if args.width <= 0 or args.height <= 0:
+    print(f"Error, invalid window dimensions: {args.width} x {args.height}")
+    exit(1)
 
   main(args)
