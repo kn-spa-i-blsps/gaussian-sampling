@@ -6,8 +6,22 @@ by automating sampling and image filtering.
 ## Installation
 The best way is to install either through a conda or uv environment.
 
+### Conda
+Use this if you already have a conda environment for related projects with some of the heavier libraries installed, which might save you disk space, avoiding installing duplicate packages.
 To install the package, run ```pip install -e .``` in the root directory of the project. \
-If there are problems with 'backend that doesn's support PEP 660', consider updating pip with ```python -m install --upgrade pip```
+If there are problems with 'backend that doesn't support PEP 660', consider updating pip with ```python -m install --upgrade pip```.
+
+### uv
+Best for keeping the project isolated from others, this is the easiest way.\
+Just run the following commands in the root directory of the project:
+```bash
+uv venv
+uv install -e .
+```
+And later run scripts like this:
+```bash
+uv run scripts/<script of choice>.py 
+```
 
 ## Scripts
 The project includes the following scripts which are ready for practical use:
