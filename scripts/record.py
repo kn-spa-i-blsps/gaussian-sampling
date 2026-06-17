@@ -88,8 +88,9 @@ def main(args):
   # Importing pygame initializes SDL so we don't want to do it before parsing args
   import pygame
 
-  save_thread = threading.Thread(target=save_worker, daemon=True)
-  save_thread.start()
+  for i in range(args.workers):
+    save_thread = threading.Thread(target=save_worker, daemon=True)
+    save_thread.start()
 
   record_tick = 1.0 / args.record_fps
   last_record_time = time.time()
@@ -192,7 +193,8 @@ def main(args):
     print("Recording: OFF")
   pygame.quit()
 
-  save_queue.put(None)
+  for i in range(args.workers):
+    save_queue.put(None)
   if frame_idx > 0:
     print("Waiting for save queue to finish...")
   save_thread.join()
@@ -221,6 +223,8 @@ if __name__ == "__main__":
                       help="Recording window height in pixels.")
   parser.add_argument("--fov", type=float, default=60.0,
                       help="Camera field of view in degrees.")
+  parser.add_argument("--workers", type=int, default=4,
+                      help="Number of worker threads for recording.")
   args = parser.parse_args()
 
   if args.width <= 0 or args.height <= 0:
