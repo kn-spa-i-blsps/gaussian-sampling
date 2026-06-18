@@ -13,4 +13,4 @@ class InteractiveScoreFilter:
         right = m
       else:
         left = m + 1
-    return objects[left:]
+    return [path for path, score in scores[left:]]
