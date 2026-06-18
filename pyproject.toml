@@ -9,13 +9,18 @@ authors = [
   { name = "malevitzch", email = "malevitzch@gmail.com" }
 ]
 keywords = ["gaussian-splatting"]
-
 dependencies = [
   "numpy>=1.26.0",
   "pillow>=10.0.0",
   "torch>=2.6",
   "plyfile>=1.0.0",
   "pygame>=2.5.0",
-  "setuptools>=72.0.0,<=73.0.0",
   "gsplat",
 ]
+
+[build-system]
+requires = ["setuptools>=72.0.0,<=73.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
