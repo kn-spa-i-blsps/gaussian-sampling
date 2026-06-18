@@ -1,4 +1,4 @@
-from filtering.marked_filter import MarkedScorer
+from filtering.marked_scorer import MarkedScorer
 from pathlib import Path
 import argparse
 

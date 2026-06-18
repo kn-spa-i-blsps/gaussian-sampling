@@ -32,7 +32,7 @@ def save_worker():
   while True:
     item = save_queue.get()
     if item is None:
-        break
+      break
     path, arr = item
     Image.fromarray(arr).save(path)
     save_queue.task_done()
@@ -59,9 +59,9 @@ def axis_angle_rotation(axis, angle):
   C = 1.0 - c
   return np.array(
     [
-      [x * x * C + c, x * y * C - z * s, x * z * C + y * s],
-      [y * x * C + z * s, y * y * C + c, y * z * C - x * s],
-      [z * x * C - y * s, z * y * C + x * s, z * z * C + c],
+      [ x * x * C + c,       x * y * C - z * s,  x * z * C + y * s ],
+      [ y * x * C + z * s,   y * y * C + c,      y * z * C - x * s ],
+      [ z * x * C - y * s,   z * y * C + x * s,  z * z * C + c     ],
     ],
     dtype=np.float32,
   )

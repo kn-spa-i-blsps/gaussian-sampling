@@ -16,7 +16,7 @@ Best for keeping the project isolated from others, this is the easiest way.\
 Just run the following commands in the root directory of the project:
 ```bash
 uv venv
-uv install -e .
+uv pip install -e .
 ```
 And later run scripts like this:
 ```bash

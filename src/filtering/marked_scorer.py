@@ -41,3 +41,9 @@ class MarkedScorer:
     with ProcessPoolExecutor(max_workers=workers) as executor:
       scores = np.array(list(executor.map(self.score_file, img_paths)))
     return scores
+
+  """
+    This is the API-compliant scoring function
+  """
+  def score(self, paths):
+    return self.score_files(paths)
