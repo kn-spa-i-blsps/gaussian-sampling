@@ -30,7 +30,7 @@ class MarkedScorer:
     diff = img.astype(np.float32) - self._mark_color
     dist = np.linalg.norm(diff, axis=-1) / self.MAX_DIST
     pixel_scores = 1 - dist ** self._alpha
-    return (pixel_scores ** self._beta).mean() ** (1 / self._beta)
+    return 1 - (pixel_scores ** self._beta).mean() ** (1 / self._beta)
 
   def score_file(self, img_path):
     img = np.array(Image.open(img_path))
@@ -43,7 +43,9 @@ class MarkedScorer:
     return scores
 
   """
-    This is the API-compliant scoring function
+    This is the API-compliant scoring function.
+    Returns a list of (object, score) tuples sorted by score in ascending order.
   """
   def score(self, paths):
-    return self.score_files(paths)
+    scores = zip(paths, self.score_files(paths))
+    return sorted(scores, key=lambda x: x[1])
