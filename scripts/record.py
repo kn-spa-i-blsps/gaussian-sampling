@@ -24,9 +24,6 @@ import queue
 
 save_queue = queue.Queue()
 
-# Black background for unmarked frames
-unmarked_bg_color = torch.tensor([0.0, 0.0, 0.0], device="cuda", dtype=torch.float32).unsqueeze(0)
-
 # Uses a 'None' sentinel value for shutdown
 def save_worker():
   while True:
@@ -102,6 +99,8 @@ def main(args):
 
   engine = SamplingEngine(args.splat_path)
   K = build_K(args.width, args.height, args.fov)
+  device = engine.splats["means"].device
+  unmarked_bg_color = torch.tensor([[0.0, 0.0, 0.0]], device=device, dtype=torch.float32)
 
   position = np.array([0.0, 0.0, -3.0], dtype=np.float32)
   R = initial_rotation()  # camera-to-world rotation; columns = [right, down, forward]

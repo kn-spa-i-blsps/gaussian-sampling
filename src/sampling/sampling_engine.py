@@ -1,13 +1,33 @@
-import gsplat
 import numpy as np
 import math
 import torch
-from gsplat import rasterization
 from plyfile import PlyData
 
-bg_pink = torch.tensor([1.0, 0.0, 1.0], device="cuda", dtype=torch.float32).unsqueeze(0)
 
-def load_ply_to_splats(path, device="cuda"):
+def _default_device():
+  if torch.cuda.is_available():
+    return "cuda"
+  if torch.backends.mps.is_available():
+    return "mps"
+  return "cpu"
+
+
+def _t2mx(t):
+  import mlx.core as mx
+  return mx.array(t.cpu().numpy())
+
+
+def _mx2t(a, device):
+  import numpy as np
+  return torch.from_numpy(np.array(a)).to(device)
+
+
+bg_pink_np = np.array([[1.0, 0.0, 1.0]], dtype=np.float32)
+
+
+def load_ply_to_splats(path, device=None):
+  if device is None:
+    device = _default_device()
   plydata = PlyData.read(path)
   v = plydata["vertex"]
 
@@ -40,15 +60,19 @@ def load_ply_to_splats(path, device="cuda"):
     "sh0": to_t(sh0),
     "shN": to_t(shN),
   }
+
+
 class SamplingEngine:
   def __init__(self, ply_path: str):
     self.splats = load_ply_to_splats(ply_path)
     self.colors = torch.cat([self.splats["sh0"], self.splats["shN"]], dim=-2)
     self.sh_degree = int(math.sqrt(self.colors.shape[-2]) - 1)
     self.quats_normalized = torch.nn.functional.normalize(self.splats["quats"], p=2, dim=-1)
+    self._use_mlx = not torch.cuda.is_available()
+    if self._use_mlx:
+      self._init_mlx_cache()
 
-    # This is needed to force JIT compilation of gsplat kernels
-    # and warm up CUDA so that later rasterization runs smoothly.
+    # Force JIT / warmup so later renders run without a compilation stall.
     self._warmup()
 
   def _warmup(self, width=512, height=512, iters=2):
@@ -63,20 +87,12 @@ class SamplingEngine:
     with torch.no_grad():
       for _ in range(iters):
         _ = self.sample(c2w, K, width, height)
-    torch.cuda.synchronize()
+    if torch.cuda.is_available():
+      torch.cuda.synchronize()
 
-  def sample(self, c2w, K, width, height, bg_color=bg_pink):
-    """
-    c2w: (4,4) camera-to-world matrix
-    K:   (3,3) intrinsics matrix
-    self.splats: dict with means, quats, scales, opacities, sh0, shN
-                 (as returned by load_ply_to_splats)
-    """
-    device = self.splats["means"].device
-    c2w = torch.as_tensor(c2w, dtype=torch.float32, device=device)
-    K = torch.as_tensor(K, dtype=torch.float32, device=device)
+  def _sample_cuda(self, c2w, K, width, height, bg_color):
+    from gsplat import rasterization
     viewmat = c2w.inverse()
-
     render_colors, _, _ = rasterization(
       self.splats["means"],
       self.quats_normalized,
@@ -93,3 +109,55 @@ class SamplingEngine:
     )
     return render_colors[0, ..., :3].clamp(0, 1)
 
+  def _init_mlx_cache(self):
+    import mlx.core as mx
+    self._mx = {
+      "means":     _t2mx(self.splats["means"]),
+      "quats":     _t2mx(self.quats_normalized),
+      "scales":    _t2mx(self.splats["scales"].exp()),
+      "opacities": _t2mx(self.splats["opacities"].sigmoid()),
+      "colors":    _t2mx(self.colors),
+    }
+    mx.eval(*self._mx.values())
+
+  def _sample_mlx(self, c2w, K, width, height, bg_color_np):
+    import mlx.core as mx
+    from gsplat_mlx import rasterization
+
+    viewmat = c2w.inverse()
+
+    render_colors, _, _ = rasterization(
+      self._mx["means"],
+      self._mx["quats"],
+      self._mx["scales"],
+      self._mx["opacities"],
+      self._mx["colors"],
+      _t2mx(viewmat[None]),
+      _t2mx(K[None]),
+      width,
+      height,
+      sh_degree=self.sh_degree,
+      backgrounds=mx.array(bg_color_np),
+      differentiable=False,
+    )
+    mx.eval(render_colors)
+    device = self.splats["means"].device
+    return _mx2t(render_colors[0, ..., :3], device).clamp(0, 1)
+
+  def sample(self, c2w, K, width, height, bg_color=None):
+    """
+    c2w: (4,4) camera-to-world matrix
+    K:   (3,3) intrinsics matrix
+    bg_color: (1,3) torch tensor (CUDA path) or None to use default pink
+    """
+    device = self.splats["means"].device
+    c2w = torch.as_tensor(c2w, dtype=torch.float32, device=device)
+    K = torch.as_tensor(K, dtype=torch.float32, device=device)
+
+    if self._use_mlx:
+      bg_np = bg_color.cpu().numpy() if bg_color is not None else bg_pink_np
+      return self._sample_mlx(c2w, K, width, height, bg_np)
+    else:
+      if bg_color is None:
+        bg_color = torch.tensor([[1.0, 0.0, 1.0]], device=device, dtype=torch.float32)
+      return self._sample_cuda(c2w, K, width, height, bg_color)
