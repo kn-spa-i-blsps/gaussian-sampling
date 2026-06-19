@@ -5,7 +5,10 @@
 !src/
 !src/filtering/
 !src/filtering/*.py
+!src/sampling/
 !src/sampling/*.py
+!src/utils/
+!src/utils/*.py
 
 !.gitignore
 !pyproject.toml

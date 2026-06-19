@@ -18,6 +18,7 @@ import argparse
 from PIL import Image
 
 from sampling.sampling_engine import SamplingEngine
+from utils.colors import parse_color
 
 import threading
 import queue
@@ -87,6 +88,8 @@ def build_c2w(position, R):
 def main(args):
   # Importing pygame initializes SDL so we don't want to do it before parsing args
   import pygame
+
+  mark_color = torch.tensor(args.mark_color, device="cuda", dtype=torch.float32).unsqueeze(0) / 255.0
 
   for i in range(args.workers):
     save_thread = threading.Thread(target=save_worker, daemon=True)
@@ -166,7 +169,7 @@ def main(args):
     c2w = build_c2w(position, R)
 
     with torch.no_grad():
-      image = engine.sample(c2w, K, args.width, args.height)
+      image = engine.sample(c2w, K, args.width, args.height, bg_color=mark_color)
 
     image_np = (image.cpu().numpy() * 255).astype(np.uint8)
 
@@ -225,6 +228,8 @@ if __name__ == "__main__":
                       help="Camera field of view in degrees.")
   parser.add_argument("--workers", type=int, default=4,
                       help="Number of worker threads for recording.")
+  parser.add_argument("--mark_color", type=parse_color, default=(255, 0, 255),
+                      help="Color for marking recorded frames (RGB).")
   args = parser.parse_args()
 
   if args.width <= 0 or args.height <= 0:

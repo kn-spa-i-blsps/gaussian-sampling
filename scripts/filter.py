@@ -16,6 +16,7 @@ from PIL import Image
 
 from filtering.marked_scorer import MarkedScorer
 from filtering.score_filter import InteractiveScoreFilter
+from utils.colors import parse_color
 
 
 class PygameInteractor:
@@ -102,6 +103,8 @@ def main():
                       "the scoring is affected by the presence of a few bad pixels. "
                       "Higher beta means that even a few bad pixels will lower the score significantly.")
   parser.add_argument("--workers", type=int, default=-1)
+  parser.add_argument("--mark_color", type=parse_color, default=np.array([255, 0, 255]),
+                      help="Color for marking recorded frames (RGB).")
   args = parser.parse_args()
 
   img_dir = Path(args.img_dir)
@@ -115,7 +118,8 @@ def main():
     sys.exit(0)
 
   print(f"Scoring {len(files)} images...")
-  scorer = MarkedScorer(alpha=args.alpha, beta=args.beta, max_workers=args.workers)
+  scorer = MarkedScorer(alpha=args.alpha, beta=args.beta, max_workers=args.workers,
+                       mark_color=args.mark_color)
 
   interactor = PygameInteractor()
 
