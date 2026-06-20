@@ -91,9 +91,11 @@ def main(args):
 
   mark_color = torch.tensor(args.mark_color, device="cuda", dtype=torch.float32).unsqueeze(0) / 255.0
 
+  workers = []
   for i in range(args.workers):
     save_thread = threading.Thread(target=save_worker, daemon=True)
     save_thread.start()
+    workers.append(save_thread)
 
   record_tick = 1.0 / args.record_fps
   last_record_time = time.time()
@@ -200,7 +202,8 @@ def main(args):
     save_queue.put(None)
   if frame_idx > 0:
     print("Waiting for save queue to finish...")
-  save_thread.join()
+  for thread in workers:
+    thread.join()
   if frame_idx > 0:
     print(f"Saved {frame_idx} frames to {args.record_dir}")
 
@@ -214,7 +217,7 @@ if __name__ == "__main__":
                       help="Camera movement speed.")
   parser.add_argument("--turn_speed", type=float, default=1.5,
                       help="Camera turn speed (radians per second).")
-  parser.add_argument("--invert_y", type=bool, default=False,
+  parser.add_argument("--invert_y", action=argparse.BooleanOptionalAction, default=False,
                       help="Invert Y-axis rotation.")
   parser.add_argument("--record_fps", type=float, default=10.0,
                       help="Frames per second for recording.")
@@ -233,7 +236,11 @@ if __name__ == "__main__":
   args = parser.parse_args()
 
   if args.width <= 0 or args.height <= 0:
-    print(f"Error, invalid window dimensions: {args.width} x {args.height}")
+    print(f"Error: invalid window dimensions: {args.width} x {args.height}")
+    exit(1)
+
+  if not os.path.isfile(args.splat_path):
+    print(f"Error: splat file does not exist: {args.splat_path}")
     exit(1)
 
   main(args)
