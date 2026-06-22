@@ -1,11 +1,8 @@
-import gsplat
 import numpy as np
 import math
 import torch
 from gsplat import rasterization
 from plyfile import PlyData
-
-bg_pink = torch.tensor([1.0, 0.0, 1.0], device="cuda", dtype=torch.float32).unsqueeze(0)
 
 def load_ply_to_splats(path, device="cuda"):
   plydata = PlyData.read(path)
@@ -18,7 +15,6 @@ def load_ply_to_splats(path, device="cuda"):
 
   sh0 = np.stack([v[f"f_dc_{i}"] for i in range(3)], axis=-1)[:, None, :]
 
-  # higher-order SH coeffs, if present
   rest_keys = sorted(
     [n for n in v.data.dtype.names if n.startswith("f_rest_")],
     key=lambda s: int(s.split("_")[-1]),
@@ -35,12 +31,13 @@ def load_ply_to_splats(path, device="cuda"):
   return {
     "means": to_t(means),
     "quats": to_t(quats),
-    "scales": to_t(scales),       # log-space, as in the original PLY
-    "opacities": to_t(opacities).squeeze(-1),  # logit-space
+    "scales": to_t(scales),
+    "opacities": to_t(opacities).squeeze(-1),
     "sh0": to_t(sh0),
     "shN": to_t(shN),
   }
 class SamplingEngine:
+  bg_pink = torch.tensor([1.0, 0.0, 1.0], device="cuda", dtype=torch.float32).unsqueeze(0)
   def __init__(self, ply_path: str):
     self.splats = load_ply_to_splats(ply_path)
     self.colors = torch.cat([self.splats["sh0"], self.splats["shN"]], dim=-2)
@@ -51,7 +48,7 @@ class SamplingEngine:
     # and warm up CUDA so that later rasterization runs smoothly.
     self._warmup()
 
-  def _warmup(self, width=512, height=512, iters=2):
+  def _warmup(self, width=64, height=64, iters=2):
     device = self.splats["means"].device
     c2w = torch.eye(4, device=device, dtype=torch.float32)
     K = torch.tensor(
@@ -67,10 +64,10 @@ class SamplingEngine:
 
   def sample(self, c2w, K, width, height, bg_color=bg_pink):
     """
-    c2w: (4,4) camera-to-world matrix
-    K:   (3,3) intrinsics matrix
-    self.splats: dict with means, quats, scales, opacities, sh0, shN
-                 (as returned by load_ply_to_splats)
+      c2w: (4,4) camera-to-world matrix
+      K:   (3,3) intrinsics matrix
+      self.splats: dict with means, quats, scales, opacities, sh0, shN
+                  (as returned by load_ply_to_splats)
     """
     device = self.splats["means"].device
     c2w = torch.as_tensor(c2w, dtype=torch.float32, device=device)

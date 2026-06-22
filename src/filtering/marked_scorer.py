@@ -3,7 +3,6 @@ from PIL import Image
 from concurrent.futures import ProcessPoolExecutor
 
 class MarkedScorer:
-  MAX_DIST = np.sqrt(3 * 255**2)
   """
     mark_color:
       - Color given in RGB, used to mark holes in the image.
@@ -17,7 +16,7 @@ class MarkedScorer:
     beta:
       - Controls the power mean, a higher beta increases the sensitivity to having any
         marked pixels in the image.
-      - Should be in the range (0, inf), beta=1 is regular mean.
+      - Should be in the range (0, inf), beta=1 is regular, arithmetic mean.
   """
   def __init__(self, alpha=0.001, beta=1.0, mark_color=np.array([255, 0, 255]),
                max_workers=1):
@@ -27,8 +26,9 @@ class MarkedScorer:
     self._max_workers = max_workers
 
   def score_image(self, img):
+    MAX_DIST = np.sqrt(3 * 255**2)
     diff = img.astype(np.float32) - self._mark_color
-    dist = np.linalg.norm(diff, axis=-1) / self.MAX_DIST
+    dist = np.linalg.norm(diff, axis=-1) / MAX_DIST
     pixel_scores = 1 - dist ** self._alpha
     return 1 - (pixel_scores ** self._beta).mean() ** (1 / self._beta)
 
