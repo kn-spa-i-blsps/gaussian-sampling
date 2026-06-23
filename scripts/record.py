@@ -106,6 +106,13 @@ def main(args):
   clock = pygame.time.Clock()
 
   engine = SamplingEngine(args.splat_path)
+  global WORLD_UP
+  WORLD_UP = engine.approximate_world_up()
+  if WORLD_UP is None:
+    print("Warning: could not determine world up vector from splat file, using default [0, 1, 0]")
+    WORLD_UP = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+  else:
+    print(f"World up vector: {WORLD_UP}")
   K = build_K(args.width, args.height, args.fov)
 
   position = np.array([0.0, 0.0, -3.0], dtype=np.float32)

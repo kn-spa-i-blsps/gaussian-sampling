@@ -90,3 +90,18 @@ class SamplingEngine:
     )
     return render_colors[0, ..., :3].clamp(0, 1)
 
+  def approximate_world_up(self):
+    means = self.splats["means"]
+
+    if means.shape[0] < 3:
+      return None
+
+    mean_center = torch.mean(means, dim=0)
+    centered = means - mean_center
+    cov = torch.mm(centered.T, centered) / means.shape[0]
+    _, eigenvectors = torch.linalg.eigh(cov)
+    normal = eigenvectors[:, 0].cpu().numpy().astype(np.float32)
+    if normal[1] < 0:
+        normal = -normal
+
+    return normal
