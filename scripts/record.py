@@ -101,7 +101,9 @@ def main(args):
   last_record_time = time.time()
 
   pygame.init()
-  screen = pygame.display.set_mode((args.width, args.height))
+  window_w = max(1, int(round(args.width * args.window_scale)))
+  window_h = max(1, int(round(args.height * args.window_scale)))
+  screen = pygame.display.set_mode((window_w, window_h))
   pygame.display.set_caption("Gaussian Splat Viewer")
   clock = pygame.time.Clock()
 
@@ -183,6 +185,8 @@ def main(args):
     image_np = (image.cpu().numpy() * 255).astype(np.uint8)
 
     surf = pygame.surfarray.make_surface(image_np.transpose(1, 0, 2))
+    if surf.get_size() != (window_w, window_h):
+      surf = pygame.transform.scale(surf, (window_w, window_h))
     screen.blit(surf, (0, 0))
 
     if recording:
@@ -240,10 +244,16 @@ if __name__ == "__main__":
                       help="Number of worker threads for recording.")
   parser.add_argument("--mark_color", type=parse_color, default=(255, 0, 255),
                       help="Color for marking recorded frames (RGB).")
+  parser.add_argument("--window_scale", type=float, default=1.0,
+                      help="Scale factor for the display window. The actual window will be (width*scale) x (height*scale), with the rendered output stretched to fit. Recording is still saved at the original (width, height) resolution.")
   args = parser.parse_args()
 
   if args.width <= 0 or args.height <= 0:
     print(f"Error: invalid window dimensions: {args.width} x {args.height}")
+    exit(1)
+
+  if args.window_scale <= 0:
+    print(f"Error: invalid window scale: {args.window_scale}")
     exit(1)
 
   if not os.path.isfile(args.splat_path):
