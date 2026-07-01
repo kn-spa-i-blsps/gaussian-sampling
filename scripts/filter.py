@@ -57,18 +57,26 @@ class PygameInteractor:
   def _load_image(self, path):
     pil_img = Image.open(path).convert("RGB")
     w, h = self._window_size
-    # Leave room at the bottom for the label bar
-    max_h = h - 60
-    pil_img.thumbnail((w, max_h), Image.LANCZOS)
+    # Reserve the bottom strip for the label bar
+    bar_h = 60
+    max_h = h - bar_h
+    # Uniformly scale the image to be as large as possible while fitting
+    # inside the area above the bar, preserving aspect ratio.
+    iw, ih = pil_img.size
+    scale = min(w / iw, max_h / ih)
+    new_w = max(1, int(round(iw * scale)))
+    new_h = max(1, int(round(ih * scale)))
+    pil_img = pil_img.resize((new_w, new_h), Image.LANCZOS)
     arr = np.array(pil_img)
     return pygame.surfarray.make_surface(arr.transpose(1, 0, 2))
 
   def _draw(self, img_surface, path, score):
     self._screen.fill((30, 30, 30))
 
-    # Center the image
-    iw, ih = img_surface.get_size()
     sw, sh = self._window_size
+
+    # Center the image within the area above the bottom bar.
+    iw, ih = img_surface.get_size()
     x = (sw - iw) // 2
     y = (sh - 60 - ih) // 2
     self._screen.blit(img_surface, (x, y))
@@ -89,23 +97,7 @@ class PygameInteractor:
     pygame.quit()
 
 
-def main():
-  parser = argparse.ArgumentParser(description="Interactive image filter using binary search.")
-  parser.add_argument("img_dir",
-                      help="Directory containing PNG images that you want to filter.")
-  parser.add_argument("--alpha", type=float, default=0.01,
-                      help="Alpha parameter for MarkedScorer, controls how sensitive "
-                      "the scoring is to colors that are almost the mark color. "
-                      "Higher alpha means that colors further from the mark color "
-                      "will still be considered bad.")
-  parser.add_argument("--beta", type=float, default=2.0,
-                      help="Beta parameter for MarkedScorer, controls how much "
-                      "the scoring is affected by the presence of a few bad pixels. "
-                      "Higher beta means that even a few bad pixels will lower the score significantly.")
-  parser.add_argument("--workers", type=int, default=-1)
-  parser.add_argument("--mark_color", type=parse_color, default=np.array([255, 0, 255]),
-                      help="Color for marking recorded frames (RGB).")
-  args = parser.parse_args()
+def main(args):
 
   img_dir = Path(args.img_dir)
   if not img_dir.is_dir():
@@ -133,10 +125,31 @@ def main():
   if not kept:
     print("No images passed the filter.")
   else:
-    print(f"\n{len(kept)} image(s) kept:")
-    for p in sorted(kept):
-      print(p)
-
+    print(f"\n{len(kept)} image(s) kept")
+    if args.verbose:
+      print("Kept images:")
+      for p in sorted(kept):
+        print(p)
 
 if __name__ == "__main__":
-  main()
+
+  parser = argparse.ArgumentParser(description="Interactive image filter using binary search.")
+  parser.add_argument("img_dir",
+                      help="Directory containing PNG images that you want to filter.")
+  parser.add_argument("--alpha", type=float, default=0.01,
+                      help="Alpha parameter for MarkedScorer, controls how sensitive "
+                      "the scoring is to colors that are almost the mark color. "
+                      "Higher alpha means that colors further from the mark color "
+                      "will still be considered bad.")
+  parser.add_argument("--beta", type=float, default=2.0,
+                      help="Beta parameter for MarkedScorer, controls how much "
+                      "the scoring is affected by the presence of a few bad pixels. "
+                      "Higher beta means that even a few bad pixels will lower the score significantly.")
+  parser.add_argument("--workers", type=int, default=-1)
+  parser.add_argument("--mark_color", type=parse_color, default=np.array([255, 0, 255]),
+                      help="Color for marking recorded frames (RGB).")
+  parser.add_argument("--verbose", action=argparse.BooleanOptionalAction, default=False,
+                      help="Enable verbose output.")
+  args = parser.parse_args()
+
+  main(args)
