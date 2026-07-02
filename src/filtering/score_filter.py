@@ -14,3 +14,7 @@ class InteractiveScoreFilter:
       else:
         left = m + 1
     return [path for path, score in scores[left:]]
+
+def filter_by_threshold(objects, scorer, threshold):
+  scores = scorer.score(objects)
+  return [obj for obj, score in scores if score >= threshold]
