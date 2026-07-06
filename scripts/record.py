@@ -2,11 +2,11 @@
 Interactive viewer for a Gaussian Splat scene rendered with gsplat.
 
 Controls:
-  W / A / S / D   - move forward / left / back / right
-  Q / E           - move down / up
-  Arrow keys      - look around (Left/Right = yaw, Up/Down = pitch)
-  SPACE           - toggle frame recording
-  ESC             - quit
+  W / A / S / D        - move forward / left / back / right
+  Q / E                - move down / up (camera-local, no world "up" needed)
+  Left mouse + drag     - look around (arcball/trackball; supports free roll)
+  SPACE                - toggle frame recording
+  ESC                  - quit
 """
 
 import os
@@ -38,7 +38,9 @@ def save_worker():
     Image.fromarray(arr).save(path)
     save_queue.task_done()
 
-# This can be configured later, should be kept in a file or something
+# Placeholder; replaced with the splat's estimated up vector at startup and
+# only used to orient the very first frame (runtime rotation is arcball-based
+# and doesn't depend on this being correct).
 WORLD_UP = np.array([0.0, 1.0, 0.0], dtype=np.float32)
 
 def build_K(width, height, fov_deg):
@@ -66,6 +68,37 @@ def axis_angle_rotation(axis, angle):
     ],
     dtype=np.float32,
   )
+
+
+def screen_to_arcball_vector(mx, my, width, height, invert_y=False):
+  """Map a window-space mouse position to a point on the arcball hemisphere,
+  expressed in camera-local coordinates (x=right, y=down, z=forward)."""
+  radius = 0.5 * min(width, height)
+  x = (mx - width / 2.0) / radius
+  y = (my - height / 2.0) / radius
+  if invert_y:
+    y = -y
+  d2 = x * x + y * y
+  if d2 <= 0.5:
+    z = math.sqrt(max(0.0, 1.0 - d2))
+  else:
+    z = 0.5 / math.sqrt(d2)
+  # z here points toward the viewer; camera-local forward is the opposite direction.
+  norm = math.sqrt(x * x + y * y + z * z)
+  return np.array([x, y, -z], dtype=np.float32) / norm
+
+
+def rotation_between(v_from, v_to, sensitivity=1.0):
+  """Rotation matrix taking v_from to v_to, scaled by sensitivity."""
+  v_from = v_from / np.linalg.norm(v_from)
+  v_to = v_to / np.linalg.norm(v_to)
+  axis = np.cross(v_from, v_to)
+  axis_len = np.linalg.norm(axis)
+  dot = np.clip(np.dot(v_from, v_to), -1.0, 1.0)
+  angle = math.acos(dot) * sensitivity
+  if axis_len < 1e-8 or angle < 1e-8:
+    return np.eye(3, dtype=np.float32)
+  return axis_angle_rotation(axis / axis_len, angle)
 
 
 def initial_rotation():
@@ -109,16 +142,20 @@ def main(args):
 
   engine = SamplingEngine(args.splat_path)
   global WORLD_UP
-  WORLD_UP = engine.approximate_world_up()
-  if WORLD_UP is None:
+  approx_up = engine.approximate_world_up()
+  if approx_up is None:
     print("Warning: could not determine world up vector from splat file, using default [0, 1, 0]")
     WORLD_UP = np.array([0.0, 1.0, 0.0], dtype=np.float32)
   else:
+    WORLD_UP = -approx_up
     print(f"World up vector: {WORLD_UP}")
   K = build_K(args.width, args.height, args.fov)
 
   position = np.array([0.0, 0.0, -3.0], dtype=np.float32)
   R = initial_rotation()  # camera-to-world rotation; columns = [right, down, forward]
+
+  dragging = False
+  last_arcball_vec = None
 
   recording = False
   frame_idx = 0
@@ -139,25 +176,27 @@ def main(args):
         elif event.key == pygame.K_SPACE:
           recording = not recording
           print("Recording:", "ON" if recording else "OFF")
+      elif event.type == pygame.MOUSEBUTTONDOWN:
+        if event.button == 1:
+          dragging = True
+          mx, my = event.pos
+          last_arcball_vec = screen_to_arcball_vector(mx, my, window_w, window_h, args.invert_y)
+      elif event.type == pygame.MOUSEBUTTONUP:
+        if event.button == 1:
+          dragging = False
+          last_arcball_vec = None
+      elif event.type == pygame.MOUSEMOTION and dragging:
+        mx, my = event.pos
+        current_vec = screen_to_arcball_vector(mx, my, window_w, window_h, args.invert_y)
+        delta_R = rotation_between(last_arcball_vec, current_vec, args.look_sensitivity)
+        R = R @ delta_R
+        last_arcball_vec = current_vec
 
     keys = pygame.key.get_pressed()
 
-    # Left and right rotation
-    if keys[pygame.K_LEFT]:
-      R = axis_angle_rotation(WORLD_UP, -args.turn_speed * dt) @ R
-    if keys[pygame.K_RIGHT]:
-      R = axis_angle_rotation(WORLD_UP, args.turn_speed * dt) @ R
-
-    # Up and down rotation (pitch)
-    local_right = np.array([1.0, 0.0, 0.0], dtype=np.float32)
-    if keys[pygame.K_UP]:
-      R = R @ axis_angle_rotation(local_right, (-1 if args.invert_y else 1) * -args.turn_speed * dt)
-    if keys[pygame.K_DOWN]:
-      R = R @ axis_angle_rotation(local_right, (-1 if args.invert_y else 1) * args.turn_speed * dt)
-
-    # --- movement (WASD + Q/E) ---
     right = R[:, 0]
     forward = R[:, 2]
+    local_up = -R[:, 1]
 
     move = np.zeros(3, dtype=np.float32)
     if keys[pygame.K_w]:
@@ -169,9 +208,9 @@ def main(args):
     if keys[pygame.K_a]:
       move -= right
     if keys[pygame.K_e]:
-      move += WORLD_UP
+      move += local_up
     if keys[pygame.K_q]:
-      move -= WORLD_UP
+      move -= local_up
 
     norm = np.linalg.norm(move)
     if norm > 0:
@@ -226,10 +265,10 @@ if __name__ == "__main__":
                       help="Path to the .ply file.")
   parser.add_argument("--move_speed", type=float, default=2.0,
                       help="Camera movement speed.")
-  parser.add_argument("--turn_speed", type=float, default=1.5,
-                      help="Camera turn speed (radians per second).")
   parser.add_argument("--invert_y", action=argparse.BooleanOptionalAction, default=False,
                       help="Invert Y-axis rotation.")
+  parser.add_argument("--look_sensitivity", type=float, default=1.0,
+                      help="Multiplier applied to arcball rotation angle while dragging.")
   parser.add_argument("--record_fps", type=float, default=10.0,
                       help="Frames per second for recording.")
   parser.add_argument("--record_dir", type=str, default="recording",
