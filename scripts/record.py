@@ -11,37 +11,13 @@ Controls:
 
 import os
 import math
-import numpy as np
-import torch
 import time
 import argparse
-from PIL import Image
-
-from sampling.sampling_engine import SamplingEngine
+import numpy as np
 from utils.colors import parse_color
 
-import threading
-import queue
-
-save_queue = queue.Queue()
-
-# Black background for unmarked frames
-unmarked_bg_color = torch.tensor([0.0, 0.0, 0.0], device="cuda", dtype=torch.float32).unsqueeze(0)
-
-# Uses a 'None' sentinel value for shutdown
-def save_worker():
-  while True:
-    item = save_queue.get()
-    if item is None:
-      break
-    path, arr = item
-    Image.fromarray(arr).save(path)
-    save_queue.task_done()
-
-# Placeholder; replaced with the splat's estimated up vector at startup and
-# only used to orient the very first frame (runtime rotation is arcball-based
-# and doesn't depend on this being correct).
 WORLD_UP = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+
 
 def build_K(width, height, fov_deg):
   f = 0.5 * width / math.tan(math.radians(fov_deg) / 2.0)
@@ -118,15 +94,37 @@ def build_c2w(position, R):
   return c2w
 
 
+def save_worker(save_queue):
+  from PIL import Image
+
+  # Uses a 'None' sentinel value for shutdown.
+  while True:
+    item = save_queue.get()
+    if item is None:
+      break
+    path, arr = item
+    Image.fromarray(arr).save(path)
+    save_queue.task_done()
+
+
 def main(args):
-  # Importing pygame initializes SDL so we don't want to do it before parsing args
+  # Imports happen here for extra snappiness when passing bad arguments
+  import threading
+  import queue
+  import torch
   import pygame
 
+  from sampling.sampling_engine import SamplingEngine
+
+  save_queue = queue.Queue()
+
   mark_color = torch.tensor(args.mark_color, device="cuda", dtype=torch.float32).unsqueeze(0) / 255.0
+  # Black background for unmarked frames.
+  unmarked_bg_color = torch.tensor([0.0, 0.0, 0.0], device="cuda", dtype=torch.float32).unsqueeze(0)
 
   workers = []
   for i in range(args.workers):
-    save_thread = threading.Thread(target=save_worker, daemon=True)
+    save_thread = threading.Thread(target=save_worker, args=(save_queue,), daemon=True)
     save_thread.start()
     workers.append(save_thread)
 
