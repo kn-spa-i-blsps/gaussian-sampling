@@ -107,14 +107,14 @@ def save_worker(save_queue):
     save_queue.task_done()
 
 
-def main(args):
+def recorder_main(args):
   # Imports happen here for extra snappiness when passing bad arguments
   import threading
   import queue
   import torch
   import pygame
 
-  from sampling.sampling_engine import SamplingEngine
+  from gaussiansampler.sampling.sampling_engine import SamplingEngine
 
   save_queue = queue.Queue()
 
@@ -256,7 +256,7 @@ def main(args):
     print(f"Saved {frame_idx} frames to {args.record_dir}")
 
 
-if __name__ == "__main__":
+def main():
   parser = argparse.ArgumentParser()
 
   parser.add_argument("splat_path", type=str,
@@ -297,4 +297,4 @@ if __name__ == "__main__":
     print(f"Error: splat file does not exist: {args.splat_path}")
     sys.exit(1)
 
-  main(args)
+  recorder_main(args)

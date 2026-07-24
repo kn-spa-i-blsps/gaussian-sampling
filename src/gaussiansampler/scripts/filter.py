@@ -14,9 +14,9 @@ import numpy as np
 import pygame
 from PIL import Image
 
-from filtering.marked_scorer import MarkedScorer
-from filtering.score_filter import InteractiveScoreFilter
-from utils.colors import parse_color
+from gaussiansampler.filtering.marked_scorer import MarkedScorer
+from gaussiansampler.filtering.score_filter import InteractiveScoreFilter
+from gaussiansampler.utils.colors import parse_color
 
 
 class PygameInteractor:
@@ -97,8 +97,7 @@ class PygameInteractor:
     pygame.quit()
 
 
-def main(args):
-
+def filter_main(args):
   img_dir = Path(args.img_dir)
   if not img_dir.is_dir():
     print(f"Error: {img_dir} is not a valid directory.")
@@ -131,8 +130,7 @@ def main(args):
       for p in sorted(kept):
         print(p)
 
-if __name__ == "__main__":
-
+def main():
   parser = argparse.ArgumentParser(description="Interactive image filter using binary search.")
   parser.add_argument("img_dir",
                       help="Directory containing PNG images that you want to filter.")
@@ -152,4 +150,4 @@ if __name__ == "__main__":
                       help="Enable verbose output.")
   args = parser.parse_args()
 
-  main(args)
+  filter_main(args)

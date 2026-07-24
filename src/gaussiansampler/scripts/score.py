@@ -1,10 +1,10 @@
-from filtering.marked_scorer import MarkedScorer
-from utils.colors import parse_color
+from gaussiansampler.filtering.marked_scorer import MarkedScorer
+from gaussiansampler.utils.colors import parse_color
 from pathlib import Path
 import argparse
+import sys
 
-
-if __name__ == "__main__":
+def main():
   parser = argparse.ArgumentParser(description="Score marked images in a directory.")
   parser.add_argument("dir",
                       help="Directory containing marked images.")
@@ -23,7 +23,7 @@ if __name__ == "__main__":
                        mark_color=args.mark_color)
   if not Path(args.dir).is_dir():
     print(f"Error: {args.dir} is not a valid directory.")
-    exit(1)
+    sys.exit(1)
   files = list(Path(args.dir).glob("*.png"))
   results = scorer.score(files)
   for file, score in results:

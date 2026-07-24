@@ -20,13 +20,13 @@ uv pip install -e .
 ```
 And later run scripts like this:
 ```bash
-uv run scripts/<script of choice>.py 
+uv run <script name>
 ```
 
 ## Scripts
 The project includes the following scripts which are ready for practical use:
-- `record.py`: Allows exploring splats imported from .ply files
+- ```gs-record```: Allows exploring splats imported from .ply files
   and generating new images with a manual free camera.
-- `score.py`: Scores images based on the presence of a certain color. 
+- ```score.py```: Scores images based on the presence of a certain color. 
   The intended for this is to render your splats with a very distinct background color
   which doesn't appear in the images themselves. 
