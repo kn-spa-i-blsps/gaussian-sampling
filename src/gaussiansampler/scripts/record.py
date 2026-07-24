@@ -14,7 +14,7 @@ import math
 import time
 import argparse
 import numpy as np
-from utils.colors import parse_color
+from gaussiansampler.utils.colors import parse_color
 
 WORLD_UP = np.array([0.0, 1.0, 0.0], dtype=np.float32)
 
@@ -284,17 +284,17 @@ if __name__ == "__main__":
   parser.add_argument("--window_scale", type=float, default=1.0,
                       help="Scale factor for the display window. The actual window will be (width*scale) x (height*scale), with the rendered output stretched to fit. Recording is still saved at the original (width, height) resolution.")
   args = parser.parse_args()
-
+  import sys
   if args.width <= 0 or args.height <= 0:
     print(f"Error: invalid window dimensions: {args.width} x {args.height}")
-    exit(1)
+    sys.exit(1)
 
   if args.window_scale <= 0:
     print(f"Error: invalid window scale: {args.window_scale}")
-    exit(1)
+    sys.exit(1)
 
   if not os.path.isfile(args.splat_path):
     print(f"Error: splat file does not exist: {args.splat_path}")
-    exit(1)
+    sys.exit(1)
 
   main(args)

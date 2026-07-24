@@ -1,14 +1,15 @@
 *
-!scripts/
-!scripts/*.py
-
 !src/
-!src/filtering/
-!src/filtering/*.py
-!src/sampling/
-!src/sampling/*.py
-!src/utils/
-!src/utils/*.py
+!src/**
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+*.egg-info/
+.eggs/
+dist/
+build/
 
 !.gitignore
 !pyproject.toml
