@@ -14,3 +14,4 @@ build/
 !.gitignore
 !pyproject.toml
 !README.md
+!.pre-commit-config.yaml
