@@ -41,7 +41,7 @@ def load_ply_to_splats(path, device="cuda"):
     }
 
 
-class SamplingEngine:
+class GsplatRenderer:
     bg_pink = torch.tensor(
         [1.0, 0.0, 1.0], device="cuda", dtype=torch.float32
     ).unsqueeze(0)
@@ -68,10 +68,10 @@ class SamplingEngine:
         )
         with torch.no_grad():
             for _ in range(iters):
-                _ = self.sample(c2w, K, width, height)
+                _ = self.render(c2w, K, width, height)
         torch.cuda.synchronize()
 
-    def sample(self, c2w, K, width, height, bg_color=bg_pink):
+    def render(self, c2w, K, width, height, bg_color=bg_pink):
         """
         c2w: (4,4) camera-to-world matrix
         K:   (3,3) intrinsics matrix
