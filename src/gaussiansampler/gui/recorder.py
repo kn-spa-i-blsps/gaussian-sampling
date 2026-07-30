@@ -7,6 +7,10 @@ Controls:
   Left mouse + drag     - look around (arcball/trackball; supports free roll)
   SPACE                - toggle frame recording
   ESC                  - quit
+
+The top bar has two menu buttons ("Output" and "Rendering") that open forms
+for adjusting recording/output and rendering settings live. Opening either
+menu pauses rendering and recording until it is closed.
 """
 
 import math
@@ -14,6 +18,8 @@ import os
 import time
 
 import numpy as np
+
+from gaussiansampler.utils.colors import parse_color
 
 
 def build_K(width, height, fov_deg):
@@ -105,6 +111,12 @@ def save_worker(save_queue):
         save_queue.task_done()
 
 
+def color_to_hex(color):
+    """Convert an (R, G, B) tuple/sequence to a '#RRGGBB' string for display."""
+    r, g, b = int(color[0]), int(color[1]), int(color[2])
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
 # The record accepts a renderer and an arguments object
 # For more information about renderers refer to GsplatRenderer from the project as an example
 def run(renderer, args):
@@ -112,19 +124,540 @@ def run(renderer, args):
     import queue
     import threading
 
-    import pygame
     import torch
+    from PySide6 import QtCore, QtGui, QtWidgets
+
+    class OutputMenu(QtWidgets.QWidget):
+        """A dropdown-style form anchored under the 'Output' toolbar button."""
+
+        def __init__(self, render_widget, parent=None):
+            super().__init__(parent, QtCore.Qt.Popup)
+            self.render_widget = render_widget
+
+            layout = QtWidgets.QFormLayout(self)
+
+            marked_row = QtWidgets.QHBoxLayout()
+            self.marked_path_edit = QtWidgets.QLineEdit()
+            self.marked_browse_btn = QtWidgets.QPushButton("...")
+            self.marked_browse_btn.setFixedWidth(28)
+            marked_row.addWidget(self.marked_path_edit)
+            marked_row.addWidget(self.marked_browse_btn)
+            layout.addRow("Marked path:", marked_row)
+
+            unmarked_row = QtWidgets.QHBoxLayout()
+            self.unmarked_path_edit = QtWidgets.QLineEdit()
+            self.unmarked_browse_btn = QtWidgets.QPushButton("...")
+            self.unmarked_browse_btn.setFixedWidth(28)
+            unmarked_row.addWidget(self.unmarked_path_edit)
+            unmarked_row.addWidget(self.unmarked_browse_btn)
+            layout.addRow("Unmarked path:", unmarked_row)
+
+            self.enable_marked_checkbox = QtWidgets.QCheckBox()
+            layout.addRow("Enable marked:", self.enable_marked_checkbox)
+
+            self.prefix_edit = QtWidgets.QLineEdit()
+            layout.addRow("Prefix:", self.prefix_edit)
+
+            self.frame_idx_edit = QtWidgets.QLineEdit()
+            validator = QtGui.QIntValidator(0, 2_147_483_647, self)
+            self.frame_idx_edit.setValidator(validator)
+            layout.addRow("Next frame index:", self.frame_idx_edit)
+
+            self.setLayout(layout)
+
+            self.marked_browse_btn.clicked.connect(self._browse_marked)
+            self.unmarked_browse_btn.clicked.connect(self._browse_unmarked)
+            self.marked_path_edit.editingFinished.connect(self._apply_marked_path)
+            self.unmarked_path_edit.editingFinished.connect(self._apply_unmarked_path)
+            self.prefix_edit.returnPressed.connect(self._apply_prefix)
+            self.frame_idx_edit.returnPressed.connect(self._apply_frame_idx)
+            self.enable_marked_checkbox.stateChanged.connect(self._apply_enable_marked)
+
+        def refresh_from_state(self):
+            """Populate all fields with the render widget's current state."""
+            rw = self.render_widget
+            self.marked_path_edit.setText(rw.args.marked_dir)
+            self.unmarked_path_edit.setText(rw.args.unmarked_dir)
+            self.enable_marked_checkbox.blockSignals(True)
+            self.enable_marked_checkbox.setChecked(rw.enable_marked)
+            self.enable_marked_checkbox.blockSignals(False)
+            self.prefix_edit.setText(rw.file_prefix)
+            self.frame_idx_edit.setText(str(rw.frame_idx))
+
+        def _browse_marked(self):
+            start_dir = self.render_widget.args.marked_dir or os.getcwd()
+            path = QtWidgets.QFileDialog.getExistingDirectory(
+                self, "Select marked output directory", start_dir
+            )
+            if path:
+                self.marked_path_edit.setText(path)
+                self._apply_marked_path()
+
+        def _browse_unmarked(self):
+            start_dir = self.render_widget.args.unmarked_dir or os.getcwd()
+            path = QtWidgets.QFileDialog.getExistingDirectory(
+                self, "Select unmarked output directory", start_dir
+            )
+            if path:
+                self.unmarked_path_edit.setText(path)
+                self._apply_unmarked_path()
+
+        def _apply_marked_path(self):
+            path = self.marked_path_edit.text().strip()
+            if path:
+                self.render_widget.set_marked_dir(path)
+
+        def _apply_unmarked_path(self):
+            path = self.unmarked_path_edit.text().strip()
+            if path:
+                self.render_widget.set_unmarked_dir(path)
+
+        def _apply_prefix(self):
+            prefix = self.prefix_edit.text().strip()
+            if prefix:
+                self.render_widget.file_prefix = prefix
+
+        def _apply_frame_idx(self):
+            text = self.frame_idx_edit.text().strip()
+            if text.isdigit():
+                self.render_widget.frame_idx = int(text)
+
+        def _apply_enable_marked(self, _state):
+            self.render_widget.enable_marked = self.enable_marked_checkbox.isChecked()
+
+    class RenderingMenu(QtWidgets.QWidget):
+        def __init__(self, render_widget, parent=None):
+            super().__init__(parent, QtCore.Qt.Popup)
+            self.render_widget = render_widget
+
+            outer = QtWidgets.QVBoxLayout(self)
+
+            top_form = QtWidgets.QFormLayout()
+            self.record_fps_edit = QtWidgets.QLineEdit()
+            self.record_fps_edit.setValidator(
+                QtGui.QDoubleValidator(0.0001, 1_000_000.0, 6, self)
+            )
+            top_form.addRow("Record FPS:", self.record_fps_edit)
+            outer.addLayout(top_form)
+
+            subform_box = QtWidgets.QGroupBox("Resolution")
+            subform = QtWidgets.QFormLayout(subform_box)
+
+            self.width_edit = QtWidgets.QLineEdit()
+            self.width_edit.setValidator(QtGui.QIntValidator(1, 100_000, self))
+            subform.addRow("Width:", self.width_edit)
+
+            self.height_edit = QtWidgets.QLineEdit()
+            self.height_edit.setValidator(QtGui.QIntValidator(1, 100_000, self))
+            subform.addRow("Height:", self.height_edit)
+
+            self.scale_edit = QtWidgets.QLineEdit()
+            self.scale_edit.setValidator(
+                QtGui.QDoubleValidator(0.0001, 1000.0, 6, self)
+            )
+            subform.addRow("Scale:", self.scale_edit)
+
+            self.resolution_submit_btn = QtWidgets.QPushButton("Apply")
+            subform.addRow(self.resolution_submit_btn)
+
+            subform_box.setLayout(subform)
+            outer.addWidget(subform_box)
+
+            color_form = QtWidgets.QFormLayout()
+            self.marked_color_edit = QtWidgets.QLineEdit()
+            color_form.addRow("Marked color (hex):", self.marked_color_edit)
+            self.unmarked_color_edit = QtWidgets.QLineEdit()
+            color_form.addRow("Unmarked color (hex):", self.unmarked_color_edit)
+            outer.addLayout(color_form)
+
+            self.setLayout(outer)
+
+            self.record_fps_edit.returnPressed.connect(self._apply_record_fps)
+            self.resolution_submit_btn.clicked.connect(self._apply_resolution)
+            self.marked_color_edit.returnPressed.connect(self._apply_marked_color)
+            self.unmarked_color_edit.returnPressed.connect(self._apply_unmarked_color)
+
+        def refresh_from_state(self):
+            rw = self.render_widget
+            self.record_fps_edit.setText(str(rw.args.record_fps))
+            self.width_edit.setText(str(rw.args.width))
+            self.height_edit.setText(str(rw.args.height))
+            self.scale_edit.setText(str(rw.args.window_scale))
+            self.marked_color_edit.setText(color_to_hex(rw.args.mark_color))
+            self.unmarked_color_edit.setText(color_to_hex(rw.args.unmarked_color))
+
+        def _apply_record_fps(self):
+            text = self.record_fps_edit.text().strip()
+            try:
+                fps = float(text)
+            except ValueError:
+                return
+            if fps > 0:
+                self.render_widget.set_record_fps(fps)
+
+        def _apply_resolution(self):
+            w_text = self.width_edit.text().strip()
+            h_text = self.height_edit.text().strip()
+            s_text = self.scale_edit.text().strip()
+            if not (w_text and h_text and s_text):
+                return
+            try:
+                width = int(w_text)
+                height = int(h_text)
+                scale = float(s_text)
+            except ValueError:
+                return
+            if width <= 0 or height <= 0 or scale <= 0:
+                return
+            self.render_widget.set_resolution(width, height, scale)
+
+        def _apply_marked_color(self):
+            text = self.marked_color_edit.text().strip()
+            try:
+                color = parse_color(text)
+            except ValueError:
+                return
+            self.render_widget.set_mark_color(color)
+
+        def _apply_unmarked_color(self):
+            text = self.unmarked_color_edit.text().strip()
+            try:
+                color = parse_color(text)
+            except ValueError:
+                return
+            self.render_widget.set_unmarked_color(color)
+
+    class RenderWidget(QtWidgets.QWidget):
+        """Owns the render loop, camera state, input handling, and recording."""
+
+        def __init__(self, renderer, args, save_queue, parent=None):
+            super().__init__(parent)
+            self.renderer = renderer
+            self.args = args
+            self.save_queue = save_queue
+
+            self.setFocusPolicy(QtCore.Qt.StrongFocus)
+            self.setMinimumSize(1, 1)
+
+            # Output-related state (mirrors args.record_dir / args.mark_color
+            # but kept mutable and independent so the menus can update them
+            # live without needing to reach back through argparse).
+            self.args.marked_dir = os.path.join(args.record_dir, "marked")
+            self.args.unmarked_dir = os.path.join(args.record_dir, "unmarked")
+            self.args.unmarked_color = (0, 0, 0)
+            self.enable_marked = True
+            self.file_prefix = "image"
+
+            self.mark_color = self._make_color_tensor(args.mark_color, torch)
+            self.unmarked_bg_color = self._make_color_tensor(
+                self.args.unmarked_color, torch
+            )
+
+            self.K = build_K(args.width, args.height, args.fov)
+            self.position = np.array([0.0, 0.0, -3.0], dtype=np.float32)
+            self.R = initial_rotation()
+
+            self.pressed_keys = set()
+            self.dragging = False
+            self.last_arcball_vec = None
+
+            self.recording = False
+            self.paused = False
+            self.frame_idx = 0
+            os.makedirs(self.args.marked_dir, exist_ok=True)
+            os.makedirs(self.args.unmarked_dir, exist_ok=True)
+
+            self.record_tick = 1.0 / args.record_fps
+            self.last_record_time = time.time()
+
+            self._current_qimage = None
+            self._last_tick_time = time.time()
+
+            self.timer = QtCore.QTimer(self)
+            self.timer.timeout.connect(self.on_tick)
+            self.timer.start(int(1000 / 60))
+
+        @staticmethod
+        def _make_color_tensor(color, torch):
+            return (
+                torch.tensor(color, device="cuda", dtype=torch.float32).unsqueeze(0)
+                / 255.0
+            )
+
+        # -- live setters used by the menus ---------------------------------
+        def set_marked_dir(self, path):
+            self.args.marked_dir = path
+            os.makedirs(self.args.marked_dir, exist_ok=True)
+
+        def set_unmarked_dir(self, path):
+            self.args.unmarked_dir = path
+            os.makedirs(self.args.unmarked_dir, exist_ok=True)
+
+        def set_record_fps(self, fps):
+            self.args.record_fps = fps
+            self.record_tick = 1.0 / fps
+
+        def set_mark_color(self, color):
+            self.args.mark_color = color
+            self.mark_color = self._make_color_tensor(color, torch)
+
+        def set_unmarked_color(self, color):
+            self.args.unmarked_color = color
+            self.unmarked_bg_color = self._make_color_tensor(color, torch)
+
+        def set_resolution(self, width, height, scale):
+            self.args.width = width
+            self.args.height = height
+            self.args.window_scale = scale
+            self.K = build_K(width, height, self.args.fov)
+            window = self.window()
+            if window is not None:
+                window.apply_window_size()
+
+        # -- pause control ----------------------------------------------------
+        def set_paused(self, paused):
+            """Pausing stops the render/recording tick but keeps the last
+            rendered frame on screen and leaves input state untouched."""
+            self.paused = paused
+            if paused:
+                self._last_tick_time = time.time()
+            else:
+                self._last_tick_time = time.time()
+                self.last_record_time = time.time()
+
+        # -- input events --------------------------------------------------
+        def keyPressEvent(self, event):
+            if self.paused:
+                return
+            if event.isAutoRepeat():
+                return
+            if event.key() == QtCore.Qt.Key_Escape:
+                self.window().close()
+                return
+            if event.key() == QtCore.Qt.Key_Space:
+                self.recording = not self.recording
+                print("Recording:", "ON" if self.recording else "OFF")
+                return
+            self.pressed_keys.add(event.key())
+
+        def keyReleaseEvent(self, event):
+            if event.isAutoRepeat():
+                return
+            self.pressed_keys.discard(event.key())
+
+        def mousePressEvent(self, event):
+            if self.paused:
+                return
+            if event.button() == QtCore.Qt.LeftButton:
+                self.dragging = True
+                pos = event.pos()
+                render_w, render_h, offset_x, offset_y = self._render_rect()
+                self.last_arcball_vec = screen_to_arcball_vector(
+                    pos.x() - offset_x,
+                    pos.y() - offset_y,
+                    render_w,
+                    render_h,
+                    self.args.invert_y,
+                )
+
+        def mouseReleaseEvent(self, event):
+            if event.button() == QtCore.Qt.LeftButton:
+                self.dragging = False
+                self.last_arcball_vec = None
+
+        def mouseMoveEvent(self, event):
+            if self.paused:
+                return
+            if self.dragging:
+                pos = event.pos()
+                render_w, render_h, offset_x, offset_y = self._render_rect()
+                current_vec = screen_to_arcball_vector(
+                    pos.x() - offset_x,
+                    pos.y() - offset_y,
+                    render_w,
+                    render_h,
+                    self.args.invert_y,
+                )
+                delta_R = rotation_between(
+                    self.last_arcball_vec, current_vec, self.args.look_sensitivity
+                )
+                self.R = self.R @ delta_R
+                self.last_arcball_vec = current_vec
+
+        # -- layout helpers --------------------------------------------------
+        def _render_rect(self):
+            """Return (render_w, render_h, offset_x, offset_y) for the
+            fixed-resolution render surface centered within this widget."""
+            render_w = self.args.width
+            render_h = self.args.height
+            offset_x = (self.width() - render_w) / 2.0
+            offset_y = (self.height() - render_h) / 2.0
+            return render_w, render_h, offset_x, offset_y
+
+        # -- render loop ------------------------------------------------
+        def on_tick(self):
+            if self.paused:
+                return
+
+            now = time.time()
+            dt = now - self._last_tick_time
+            self._last_tick_time = now
+
+            right = self.R[:, 0]
+            forward = self.R[:, 2]
+            local_up = -self.R[:, 1]
+
+            move = np.zeros(3, dtype=np.float32)
+            if QtCore.Qt.Key_W in self.pressed_keys:
+                move += forward
+            if QtCore.Qt.Key_S in self.pressed_keys:
+                move -= forward
+            if QtCore.Qt.Key_D in self.pressed_keys:
+                move += right
+            if QtCore.Qt.Key_A in self.pressed_keys:
+                move -= right
+            if QtCore.Qt.Key_E in self.pressed_keys:
+                move += local_up
+            if QtCore.Qt.Key_Q in self.pressed_keys:
+                move -= local_up
+
+            norm = np.linalg.norm(move)
+            if norm > 0:
+                self.position += (move / norm) * self.args.move_speed * dt
+
+            c2w = build_c2w(self.position, self.R)
+
+            with torch.no_grad():
+                image = self.renderer.render(
+                    c2w,
+                    self.K,
+                    self.args.width,
+                    self.args.height,
+                    bg_color=self.mark_color,
+                )
+            image_np = (image.cpu().numpy() * 255).astype(np.uint8)
+            self._current_qimage = self._to_qimage(image_np)
+
+            if self.recording and now - self.last_record_time >= self.record_tick:
+                self.last_record_time = now
+
+                if self.enable_marked:
+                    path = os.path.join(
+                        self.args.marked_dir,
+                        f"{self.file_prefix}{self.frame_idx:05d}.png",
+                    )
+                    self.save_queue.put((path, image_np.copy()))
+
+                with torch.no_grad():
+                    image = self.renderer.render(
+                        c2w,
+                        self.K,
+                        self.args.width,
+                        self.args.height,
+                        bg_color=self.unmarked_bg_color,
+                    )
+                unmarked_np = (image.cpu().numpy() * 255).astype(np.uint8)
+                path = os.path.join(
+                    self.args.unmarked_dir,
+                    f"{self.file_prefix}{self.frame_idx:05d}.png",
+                )
+                self.save_queue.put((path, unmarked_np.copy()))
+                self.frame_idx += 1
+
+            self.update()
+
+        @staticmethod
+        def _to_qimage(image_np):
+            h, w, _ = image_np.shape
+            contiguous = np.ascontiguousarray(image_np)
+            qimg = QtGui.QImage(
+                contiguous.data, w, h, 3 * w, QtGui.QImage.Format_RGB888
+            )
+            # Copy so the QImage owns its buffer (contiguous is a local var).
+            return qimg.copy()
+
+        # -- painting -----------------------------------------------------
+        def paintEvent(self, event):
+            painter = QtGui.QPainter(self)
+            painter.fillRect(self.rect(), QtGui.QColor(30, 30, 30))
+            if self._current_qimage is not None:
+                render_w, render_h, offset_x, offset_y = self._render_rect()
+                target = QtCore.QRectF(offset_x, offset_y, render_w, render_h)
+                painter.drawImage(target, self._current_qimage)
+            if self.recording:
+                painter.setBrush(QtGui.QColor(255, 0, 0))
+                painter.setPen(QtCore.Qt.NoPen)
+                painter.drawEllipse(QtCore.QPoint(20, 20), 8, 8)
+            painter.end()
+
+    class MainWindow(QtWidgets.QMainWindow):
+        def __init__(self, renderer, args, save_queue):
+            super().__init__()
+            self.setWindowTitle("Gaussian Splat Viewer")
+
+            self.render_widget = RenderWidget(renderer, args, save_queue, self)
+            self.setCentralWidget(self.render_widget)
+
+            self.output_menu = OutputMenu(self.render_widget, self)
+            self.rendering_menu = RenderingMenu(self.render_widget, self)
+
+            self.toolbar = QtWidgets.QToolBar("Options", self)
+            self.toolbar.setMovable(False)
+            self.addToolBar(self.toolbar)
+
+            self.output_btn = QtWidgets.QToolButton(self.toolbar)
+            self.output_btn.setText("Output")
+            self.output_btn.clicked.connect(
+                lambda: self._toggle_menu(self.output_menu, self.output_btn)
+            )
+            self.toolbar.addWidget(self.output_btn)
+
+            self.rendering_btn = QtWidgets.QToolButton(self.toolbar)
+            self.rendering_btn.setText("Rendering")
+            self.rendering_btn.clicked.connect(
+                lambda: self._toggle_menu(self.rendering_menu, self.rendering_btn)
+            )
+            self.toolbar.addWidget(self.rendering_btn)
+
+            self.apply_window_size()
+
+        def apply_window_size(self):
+            args = self.render_widget.args
+            window_w = max(1, round(args.width * args.window_scale))
+            window_h = max(1, round(args.height * args.window_scale))
+            self.resize(window_w, window_h)
+
+        def _toggle_menu(self, menu, button):
+            if menu.isVisible():
+                menu.hide()
+                return
+            menu.refresh_from_state()
+            self.render_widget.set_paused(True)
+            self._connect_menu_close_once(menu)
+            pos = button.mapToGlobal(QtCore.QPoint(0, button.height()))
+            menu.move(pos)
+            menu.show()
+            menu.setFocus()
+
+        def _connect_menu_close_once(self, menu):
+            # QtCore.Qt.Popup widgets auto-hide on outside click / escape;
+            # hook hideEvent to resume rendering exactly once per show.
+            if getattr(menu, "_resume_hooked", False):
+                return
+            menu._resume_hooked = True
+            original_hide_event = menu.hideEvent
+
+            def hide_event(event):
+                self.render_widget.set_paused(False)
+                original_hide_event(event)
+
+            menu.hideEvent = hide_event
+
+        def closeEvent(self, event):
+            self.render_widget.timer.stop()
+            super().closeEvent(event)
 
     save_queue = queue.Queue()
-
-    mark_color = (
-        torch.tensor(args.mark_color, device="cuda", dtype=torch.float32).unsqueeze(0)
-        / 255.0
-    )
-    # Black background for unmarked frames.
-    unmarked_bg_color = torch.tensor(
-        [0.0, 0.0, 0.0], device="cuda", dtype=torch.float32
-    ).unsqueeze(0)
 
     workers = []
     for i in range(args.workers):
@@ -134,128 +667,16 @@ def run(renderer, args):
         save_thread.start()
         workers.append(save_thread)
 
-    record_tick = 1.0 / args.record_fps
-    last_record_time = time.time()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    window = MainWindow(renderer, args, save_queue)
+    window.render_widget.setFocus()
+    window.show()
+    app.exec()
 
-    pygame.init()
-    window_w = max(1, round(args.width * args.window_scale))
-    window_h = max(1, round(args.height * args.window_scale))
-    screen = pygame.display.set_mode((window_w, window_h))
-    pygame.display.set_caption("Gaussian Splat Viewer")
-    clock = pygame.time.Clock()
-
-    K = build_K(args.width, args.height, args.fov)
-
-    position = np.array([0.0, 0.0, -3.0], dtype=np.float32)
-    R = initial_rotation()  # camera-to-world rotation; columns = [right, down, forward]
-
-    dragging = False
-    last_arcball_vec = None
-
-    recording = False
-    frame_idx = 0
-    os.makedirs(args.record_dir, exist_ok=True)
-    os.makedirs(os.path.join(args.record_dir, "marked"), exist_ok=True)
-    os.makedirs(os.path.join(args.record_dir, "unmarked"), exist_ok=True)
-
-    running = True
-    while running:
-        dt = clock.tick(60) / 1000.0
-
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    running = False
-                elif event.key == pygame.K_SPACE:
-                    recording = not recording
-                    print("Recording:", "ON" if recording else "OFF")
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:
-                    dragging = True
-                    mx, my = event.pos
-                    last_arcball_vec = screen_to_arcball_vector(
-                        mx, my, window_w, window_h, args.invert_y
-                    )
-            elif event.type == pygame.MOUSEBUTTONUP:
-                if event.button == 1:
-                    dragging = False
-                    last_arcball_vec = None
-            elif event.type == pygame.MOUSEMOTION and dragging:
-                mx, my = event.pos
-                current_vec = screen_to_arcball_vector(
-                    mx, my, window_w, window_h, args.invert_y
-                )
-                delta_R = rotation_between(
-                    last_arcball_vec, current_vec, args.look_sensitivity
-                )
-                R = R @ delta_R
-                last_arcball_vec = current_vec
-
-        keys = pygame.key.get_pressed()
-
-        right = R[:, 0]
-        forward = R[:, 2]
-        local_up = -R[:, 1]
-
-        move = np.zeros(3, dtype=np.float32)
-        if keys[pygame.K_w]:
-            move += forward
-        if keys[pygame.K_s]:
-            move -= forward
-        if keys[pygame.K_d]:
-            move += right
-        if keys[pygame.K_a]:
-            move -= right
-        if keys[pygame.K_e]:
-            move += local_up
-        if keys[pygame.K_q]:
-            move -= local_up
-
-        norm = np.linalg.norm(move)
-        if norm > 0:
-            position += (move / norm) * args.move_speed * dt
-
-        c2w = build_c2w(position, R)
-
-        with torch.no_grad():
-            image = renderer.render(
-                c2w, K, args.width, args.height, bg_color=mark_color
-            )
-
-        image_np = (image.cpu().numpy() * 255).astype(np.uint8)
-
-        surf = pygame.surfarray.make_surface(image_np.transpose(1, 0, 2))
-        if surf.get_size() != (window_w, window_h):
-            surf = pygame.transform.scale(surf, (window_w, window_h))
-        screen.blit(surf, (0, 0))
-
-        if recording:
-            pygame.draw.circle(screen, (255, 0, 0), (20, 20), 8)
-            if time.time() - last_record_time >= record_tick:
-                last_record_time = time.time()
-                path = os.path.join(
-                    args.record_dir, "marked", f"frame_{frame_idx:05d}.png"
-                )
-                save_queue.put((path, image_np.copy()))
-
-                with torch.no_grad():
-                    image = renderer.render(
-                        c2w, K, args.width, args.height, bg_color=unmarked_bg_color
-                    )
-                image_np = (image.cpu().numpy() * 255).astype(np.uint8)
-                path = os.path.join(
-                    args.record_dir, "unmarked", f"frame_{frame_idx:05d}.png"
-                )
-                save_queue.put((path, image_np.copy()))
-                frame_idx += 1
-
-        pygame.display.flip()
-
+    frame_idx = window.render_widget.frame_idx
+    recording = window.render_widget.recording
     if recording:
         print("Recording: OFF")
-    pygame.quit()
 
     for i in range(args.workers):
         save_queue.put(None)
