@@ -8,10 +8,6 @@ Controls:
   SPACE                - toggle frame recording
   ESC                  - quit
 
-This version uses PyQt5 (QMainWindow + QToolBar) instead of pygame, so a
-toolbar with additional options/controls can be added later without
-restructuring the render loop or event handling.
-
 The top bar has two menu buttons ("Output" and "Rendering") that open forms
 for adjusting recording/output and rendering settings live. Opening either
 menu pauses rendering and recording until it is closed.
@@ -131,10 +127,6 @@ def run(renderer, args):
     import torch
     from PySide6 import QtCore, QtGui, QtWidgets
 
-    # ---------------------------------------------------------------------
-    # Output menu: form for marked/unmarked paths, enable-marked, prefix,
-    # and next frame index.
-    # ---------------------------------------------------------------------
     class OutputMenu(QtWidgets.QWidget):
         """A dropdown-style form anchored under the 'Output' toolbar button."""
 
@@ -144,7 +136,6 @@ def run(renderer, args):
 
             layout = QtWidgets.QFormLayout(self)
 
-            # Marked path -----------------------------------------------------
             marked_row = QtWidgets.QHBoxLayout()
             self.marked_path_edit = QtWidgets.QLineEdit()
             self.marked_browse_btn = QtWidgets.QPushButton("...")
@@ -153,7 +144,6 @@ def run(renderer, args):
             marked_row.addWidget(self.marked_browse_btn)
             layout.addRow("Marked path:", marked_row)
 
-            # Unmarked path -----------------------------------------------------
             unmarked_row = QtWidgets.QHBoxLayout()
             self.unmarked_path_edit = QtWidgets.QLineEdit()
             self.unmarked_browse_btn = QtWidgets.QPushButton("...")
@@ -162,15 +152,12 @@ def run(renderer, args):
             unmarked_row.addWidget(self.unmarked_browse_btn)
             layout.addRow("Unmarked path:", unmarked_row)
 
-            # Enable marked -----------------------------------------------------
             self.enable_marked_checkbox = QtWidgets.QCheckBox()
             layout.addRow("Enable marked:", self.enable_marked_checkbox)
 
-            # Prefix -----------------------------------------------------
             self.prefix_edit = QtWidgets.QLineEdit()
             layout.addRow("Prefix:", self.prefix_edit)
 
-            # Frame index -----------------------------------------------------
             self.frame_idx_edit = QtWidgets.QLineEdit()
             validator = QtGui.QIntValidator(0, 2_147_483_647, self)
             self.frame_idx_edit.setValidator(validator)
@@ -178,7 +165,6 @@ def run(renderer, args):
 
             self.setLayout(layout)
 
-            # Wiring ------------------------------------------------------
             self.marked_browse_btn.clicked.connect(self._browse_marked)
             self.unmarked_browse_btn.clicked.connect(self._browse_unmarked)
             self.marked_path_edit.editingFinished.connect(self._apply_marked_path)
@@ -198,7 +184,6 @@ def run(renderer, args):
             self.prefix_edit.setText(rw.file_prefix)
             self.frame_idx_edit.setText(str(rw.frame_idx))
 
-        # -- browse dialogs ------------------------------------------------
         def _browse_marked(self):
             start_dir = self.render_widget.args.marked_dir or os.getcwd()
             path = QtWidgets.QFileDialog.getExistingDirectory(
@@ -217,7 +202,6 @@ def run(renderer, args):
                 self.unmarked_path_edit.setText(path)
                 self._apply_unmarked_path()
 
-        # -- apply handlers (only on commit: enter/selection) --------------
         def _apply_marked_path(self):
             path = self.marked_path_edit.text().strip()
             if path:
@@ -241,10 +225,6 @@ def run(renderer, args):
         def _apply_enable_marked(self, _state):
             self.render_widget.enable_marked = self.enable_marked_checkbox.isChecked()
 
-    # ---------------------------------------------------------------------
-    # Rendering menu: record fps, width/height/scale subform (with submit),
-    # and marked/unmarked hex color inputs.
-    # ---------------------------------------------------------------------
     class RenderingMenu(QtWidgets.QWidget):
         def __init__(self, render_widget, parent=None):
             super().__init__(parent, QtCore.Qt.Popup)
@@ -260,7 +240,6 @@ def run(renderer, args):
             top_form.addRow("Record FPS:", self.record_fps_edit)
             outer.addLayout(top_form)
 
-            # Subform: width / height / scale, with its own submit button ---
             subform_box = QtWidgets.QGroupBox("Resolution")
             subform = QtWidgets.QFormLayout(subform_box)
 
@@ -284,7 +263,6 @@ def run(renderer, args):
             subform_box.setLayout(subform)
             outer.addWidget(subform_box)
 
-            # Colors ------------------------------------------------------
             color_form = QtWidgets.QFormLayout()
             self.marked_color_edit = QtWidgets.QLineEdit()
             color_form.addRow("Marked color (hex):", self.marked_color_edit)
@@ -294,7 +272,6 @@ def run(renderer, args):
 
             self.setLayout(outer)
 
-            # Wiring ------------------------------------------------------
             self.record_fps_edit.returnPressed.connect(self._apply_record_fps)
             self.resolution_submit_btn.clicked.connect(self._apply_resolution)
             self.marked_color_edit.returnPressed.connect(self._apply_marked_color)
@@ -309,7 +286,6 @@ def run(renderer, args):
             self.marked_color_edit.setText(color_to_hex(rw.args.mark_color))
             self.unmarked_color_edit.setText(color_to_hex(rw.args.unmarked_color))
 
-        # -- apply handlers --------------------------------------------------
         def _apply_record_fps(self):
             text = self.record_fps_edit.text().strip()
             try:
