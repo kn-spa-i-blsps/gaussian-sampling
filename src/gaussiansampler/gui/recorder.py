@@ -229,6 +229,7 @@ def run(renderer, args):
         def __init__(self, render_widget, parent=None):
             super().__init__(parent, QtCore.Qt.Popup)
             self.render_widget = render_widget
+            self._color_dialog_open = False
 
             outer = QtWidgets.QVBoxLayout(self)
 
@@ -264,10 +265,14 @@ def run(renderer, args):
             outer.addWidget(subform_box)
 
             color_form = QtWidgets.QFormLayout()
-            self.marked_color_edit = QtWidgets.QLineEdit()
-            color_form.addRow("Marked color (hex):", self.marked_color_edit)
-            self.unmarked_color_edit = QtWidgets.QLineEdit()
-            color_form.addRow("Unmarked color (hex):", self.unmarked_color_edit)
+            marked_color_row, self.marked_color_edit, self.marked_color_picker = (
+                self._make_color_row()
+            )
+            color_form.addRow("Marked color:", marked_color_row)
+            unmarked_color_row, self.unmarked_color_edit, self.unmarked_color_picker = (
+                self._make_color_row()
+            )
+            color_form.addRow("Unmarked color:", unmarked_color_row)
             outer.addLayout(color_form)
 
             self.setLayout(outer)
@@ -276,6 +281,59 @@ def run(renderer, args):
             self.resolution_submit_btn.clicked.connect(self._apply_resolution)
             self.marked_color_edit.returnPressed.connect(self._apply_marked_color)
             self.unmarked_color_edit.returnPressed.connect(self._apply_unmarked_color)
+            self.marked_color_picker.clicked.connect(self._pick_marked_color)
+            self.unmarked_color_picker.clicked.connect(self._pick_unmarked_color)
+
+        def _make_color_row(self):
+            row = QtWidgets.QWidget()
+            layout = QtWidgets.QHBoxLayout(row)
+            layout.setContentsMargins(0, 0, 0, 0)
+            edit = QtWidgets.QLineEdit()
+            edit.setPlaceholderText("#RRGGBB")
+            picker = QtWidgets.QPushButton("Pick…")
+            picker.setToolTip("Choose a color")
+            layout.addWidget(edit)
+            layout.addWidget(picker)
+            return row, edit, picker
+
+        def _pick_color(self, edit, apply):
+            try:
+                initial = QtGui.QColor(edit.text().strip())
+                if not initial.isValid():
+                    initial = QtGui.QColor("#FF00FF")
+            except (TypeError, ValueError):
+                initial = QtGui.QColor("#FF00FF")
+
+            self._color_dialog_open = True
+            self.render_widget.set_paused(True)
+            parent_window = self.window()
+            dialog = QtWidgets.QColorDialog(initial, parent_window)
+            dialog.setWindowTitle("Choose color")
+            dialog.setOption(QtWidgets.QColorDialog.ShowAlphaChannel, True)
+            dialog.setWindowModality(QtCore.Qt.ApplicationModal)
+
+            dialog.adjustSize()
+            if parent_window is not None:
+                center = parent_window.frameGeometry().center()
+                dialog.move(center - dialog.frameGeometry().center())
+
+            try:
+                if dialog.exec() == QtWidgets.QDialog.Accepted:
+                    color = dialog.currentColor()
+                    edit.setText(color.name().upper())
+                    apply()
+            finally:
+                self._color_dialog_open = False
+                # The popup is normally hidden when the dialog opens. If it
+                # remains visible, keep the viewer paused until it is closed.
+                if not self.isVisible():
+                    self.render_widget.set_paused(False)
+
+        def _pick_marked_color(self):
+            self._pick_color(self.marked_color_edit, self._apply_marked_color)
+
+        def _pick_unmarked_color(self):
+            self._pick_color(self.unmarked_color_edit, self._apply_unmarked_color)
 
         def refresh_from_state(self):
             rw = self.render_widget
@@ -573,10 +631,8 @@ def run(renderer, args):
             qimg = QtGui.QImage(
                 contiguous.data, w, h, 3 * w, QtGui.QImage.Format_RGB888
             )
-            # Copy so the QImage owns its buffer (contiguous is a local var).
             return qimg.copy()
 
-        # -- painting -----------------------------------------------------
         def paintEvent(self, event):
             painter = QtGui.QPainter(self)
             painter.fillRect(self.rect(), QtGui.QColor(30, 30, 30))
@@ -648,7 +704,8 @@ def run(renderer, args):
             original_hide_event = menu.hideEvent
 
             def hide_event(event):
-                self.render_widget.set_paused(False)
+                if not getattr(menu, "_color_dialog_open", False):
+                    self.render_widget.set_paused(False)
                 original_hide_event(event)
 
             menu.hideEvent = hide_event
