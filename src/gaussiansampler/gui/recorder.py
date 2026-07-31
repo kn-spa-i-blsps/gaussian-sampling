@@ -484,6 +484,11 @@ def run(renderer, args):
                 self.last_record_time = time.time()
 
         # -- input events --------------------------------------------------
+        def reset_input_state(self):
+            self.pressed_keys.clear()
+            self.dragging = False
+            self.last_arcball_vec = None
+
         def keyPressEvent(self, event):
             if self.paused:
                 return
@@ -687,6 +692,7 @@ def run(renderer, args):
             if menu.isVisible():
                 menu.hide()
                 return
+            self.render_widget.reset_input_state()
             menu.refresh_from_state()
             self.render_widget.set_paused(True)
             self._connect_menu_close_once(menu)
