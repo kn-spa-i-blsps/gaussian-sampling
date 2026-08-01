@@ -393,6 +393,7 @@ def run(renderer, args):
             self.renderer = renderer
             self.args = args
             self.save_queue = save_queue
+            self.locked_R = None
 
             self.setFocusPolicy(QtCore.Qt.StrongFocus)
             self.setMinimumSize(1, 1)
@@ -497,6 +498,11 @@ def run(renderer, args):
             if event.key() == QtCore.Qt.Key_Escape:
                 self.window().close()
                 return
+            if event.key() == QtCore.Qt.Key_X:
+                if self.locked_R is None:
+                    self.locked_R = self.R
+                else:
+                    self.locked_R = None
             if event.key() == QtCore.Qt.Key_Space:
                 self.recording = not self.recording
                 print("Recording:", "ON" if self.recording else "OFF")
@@ -566,9 +572,13 @@ def run(renderer, args):
             dt = now - self._last_tick_time
             self._last_tick_time = now
 
-            right = self.R[:, 0]
-            forward = self.R[:, 2]
-            local_up = -self.R[:, 1]
+            curR = self.R
+            if self.locked_R is not None:
+                curR = self.locked_R
+
+            right = curR[:, 0]
+            forward = curR[:, 2]
+            local_up = -curR[:, 1]
 
             move = np.zeros(3, dtype=np.float32)
             if QtCore.Qt.Key_W in self.pressed_keys:
@@ -649,6 +659,30 @@ def run(renderer, args):
                 painter.setBrush(QtGui.QColor(255, 0, 0))
                 painter.setPen(QtCore.Qt.NoPen)
                 painter.drawEllipse(QtCore.QPoint(20, 20), 8, 8)
+            if self.locked_R is not None:
+                margin = 12
+                padding_x = 8
+                padding_y = 4
+                text = "Rotation locked"
+                font = painter.font()
+                font.setBold(True)
+                painter.setFont(font)
+                text_size = painter.fontMetrics().size(0, text)
+                badge = QtCore.QRectF(
+                    self.width() - text_size.width() - 2 * padding_x - margin,
+                    margin,
+                    text_size.width() + 2 * padding_x,
+                    text_size.height() + 2 * padding_y,
+                )
+                painter.setPen(QtCore.Qt.NoPen)
+                painter.setBrush(QtGui.QColor(0, 0, 0, 170))
+                painter.drawRoundedRect(badge, 4, 4)
+                painter.setPen(QtGui.QColor(255, 255, 255))
+                painter.drawText(
+                    badge,
+                    QtCore.Qt.AlignCenter,
+                    text,
+                )
             painter.end()
 
     class MainWindow(QtWidgets.QMainWindow):
