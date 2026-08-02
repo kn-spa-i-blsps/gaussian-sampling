@@ -225,6 +225,53 @@ def run(renderer, args):
         def _apply_enable_marked(self, _state):
             self.render_widget.enable_marked = self.enable_marked_checkbox.isChecked()
 
+    class ControlsMenu(QtWidgets.QWidget):
+        """A dropdown-style form for camera movement controls."""
+
+        def __init__(self, render_widget, parent=None):
+            super().__init__(parent, QtCore.Qt.Popup)
+            self.render_widget = render_widget
+
+            layout = QtWidgets.QFormLayout(self)
+
+            self.move_speed_edit = QtWidgets.QLineEdit()
+            self.move_speed_edit.setValidator(
+                QtGui.QDoubleValidator(0.0001, 1_000_000.0, 6, self)
+            )
+            layout.addRow("Movement speed:", self.move_speed_edit)
+
+            self.look_sensitivity_edit = QtWidgets.QLineEdit()
+            self.look_sensitivity_edit.setValidator(
+                QtGui.QDoubleValidator(0.0001, 1_000_000.0, 6, self)
+            )
+            layout.addRow("Rotation sensitivity:", self.look_sensitivity_edit)
+
+            self.setLayout(layout)
+
+            self.move_speed_edit.returnPressed.connect(self._apply_values)
+            self.move_speed_edit.editingFinished.connect(self._apply_values)
+            self.look_sensitivity_edit.returnPressed.connect(self._apply_values)
+            self.look_sensitivity_edit.editingFinished.connect(self._apply_values)
+
+        def refresh_from_state(self):
+            """Populate fields with current values without applying them."""
+            args = self.render_widget.args
+            self.move_speed_edit.setText(str(args.move_speed))
+            self.look_sensitivity_edit.setText(str(args.look_sensitivity))
+
+        def _apply_values(self):
+            try:
+                move_speed = float(self.move_speed_edit.text().strip())
+                look_sensitivity = float(self.look_sensitivity_edit.text().strip())
+            except ValueError:
+                return
+            if move_speed <= 0 or look_sensitivity <= 0:
+                return
+
+            args = self.render_widget.args
+            args.move_speed = move_speed
+            args.look_sensitivity = look_sensitivity
+
     class RenderingMenu(QtWidgets.QWidget):
         def __init__(self, render_widget, parent=None):
             super().__init__(parent, QtCore.Qt.Popup)
@@ -695,6 +742,7 @@ def run(renderer, args):
 
             self.output_menu = OutputMenu(self.render_widget, self)
             self.rendering_menu = RenderingMenu(self.render_widget, self)
+            self.controls_menu = ControlsMenu(self.render_widget, self)
 
             self.toolbar = QtWidgets.QToolBar("Options", self)
             self.toolbar.setMovable(False)
@@ -713,6 +761,13 @@ def run(renderer, args):
                 lambda: self._toggle_menu(self.rendering_menu, self.rendering_btn)
             )
             self.toolbar.addWidget(self.rendering_btn)
+
+            self.controls_btn = QtWidgets.QToolButton(self.toolbar)
+            self.controls_btn.setText("Controls")
+            self.controls_btn.clicked.connect(
+                lambda: self._toggle_menu(self.controls_menu, self.controls_btn)
+            )
+            self.toolbar.addWidget(self.controls_btn)
 
             self.apply_window_size()
 
