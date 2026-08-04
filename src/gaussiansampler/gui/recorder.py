@@ -232,19 +232,31 @@ def run(renderer, args):
             super().__init__(parent, QtCore.Qt.Popup)
             self.render_widget = render_widget
 
-            layout = QtWidgets.QFormLayout(self)
+            layout = QtWidgets.QVBoxLayout(self)
 
+            numeric_form = QtWidgets.QFormLayout()
             self.move_speed_edit = QtWidgets.QLineEdit()
             self.move_speed_edit.setValidator(
                 QtGui.QDoubleValidator(0.0001, 1_000_000.0, 6, self)
             )
-            layout.addRow("Movement speed:", self.move_speed_edit)
+            numeric_form.addRow("Movement speed:", self.move_speed_edit)
 
             self.look_sensitivity_edit = QtWidgets.QLineEdit()
             self.look_sensitivity_edit.setValidator(
                 QtGui.QDoubleValidator(0.0001, 1_000_000.0, 6, self)
             )
-            layout.addRow("Rotation sensitivity:", self.look_sensitivity_edit)
+            numeric_form.addRow("Rotation sensitivity:", self.look_sensitivity_edit)
+            layout.addLayout(numeric_form)
+
+            keyboard_controls = QtWidgets.QGroupBox("Keyboard controls")
+            controls_form = QtWidgets.QFormLayout(keyboard_controls)
+            controls_form.addRow("W / A / S / D:", QtWidgets.QLabel("Move"))
+            controls_form.addRow("Q / E:", QtWidgets.QLabel("Move down / up"))
+            controls_form.addRow("Left mouse + drag:", QtWidgets.QLabel("Look around"))
+            controls_form.addRow("Space:", QtWidgets.QLabel("Toggle recording"))
+            controls_form.addRow("X:", QtWidgets.QLabel("Lock/unlock rotation"))
+            controls_form.addRow("Esc:", QtWidgets.QLabel("Quit"))
+            layout.addWidget(keyboard_controls)
 
             self.setLayout(layout)
 
