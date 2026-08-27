@@ -528,6 +528,11 @@ def run(renderer, args):
             self.args.height = height
             self.args.window_scale = scale
             self.K = build_K(width, height, self.args.fov)
+            # Mouse coordinates are interpreted in the displayed render
+            # rectangle.  Changing its size while a drag is active would
+            # leave last_arcball_vec in the coordinate system of the old
+            # rectangle.
+            self.reset_input_state()
             window = self.window()
             if window is not None:
                 window.apply_window_size()
@@ -614,10 +619,15 @@ def run(renderer, args):
 
         # -- layout helpers --------------------------------------------------
         def _render_rect(self):
-            """Return (render_w, render_h, offset_x, offset_y) for the
-            fixed-resolution render surface centered within this widget."""
-            render_w = self.args.width
-            render_h = self.args.height
+            """Return the displayed render rectangle centered in this widget.
+
+            Rendering happens at the recording resolution, but the image is
+            displayed at the configured window scale.  Paint and arcball
+            input must use this same rectangle so a mouse position refers to
+            the same point in the image that the user sees.
+            """
+            render_w = max(1, round(self.args.width * self.args.window_scale))
+            render_h = max(1, round(self.args.height * self.args.window_scale))
             offset_x = (self.width() - render_w) / 2.0
             offset_y = (self.height() - render_h) / 2.0
             return render_w, render_h, offset_x, offset_y
