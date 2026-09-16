@@ -17,8 +17,10 @@ dependencies = [
   "pyside6>=6.7.0",
   "pygame>=2.5.0",
   "gsplat",
+  "nerfstudio",
 ]
 [project.scripts]
+gs-record-water = "record_water:main"
 gs-record = "gaussiansampler.scripts.record:main"
 gs-filter = "gaussiansampler.scripts.filter:main"
 gs-score = "gaussiansampler.scripts.score:main"
@@ -27,3 +29,8 @@ requires = ["setuptools>=72.0.0,<=73.0.0"]
 build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# The water viewer is composed of standalone modules so it can be invoked both
+# through the console script and directly from a source checkout.
+[tool.setuptools]
+py-modules = ["record_water", "recorder_water", "gsplat_renderer_water", "renderer_water"]
