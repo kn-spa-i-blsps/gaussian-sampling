@@ -347,7 +347,9 @@ def run(renderer, args):
 
             self.setLayout(outer)
 
-            self.record_fps_edit.returnPressed.connect(self._apply_record_fps)
+            # Apply on Enter or when focus leaves the field.  Requiring Enter
+            # alone made it easy to record at the previous FPS accidentally.
+            self.record_fps_edit.editingFinished.connect(self._apply_record_fps)
             self.resolution_submit_btn.clicked.connect(self._apply_resolution)
             self.marked_color_edit.returnPressed.connect(self._apply_marked_color)
             self.unmarked_color_edit.returnPressed.connect(self._apply_unmarked_color)
@@ -857,9 +859,16 @@ def run(renderer, args):
                 target = QtCore.QRectF(offset_x, offset_y, render_w, render_h)
                 painter.drawImage(target, self._current_qimage)
             if self.recording:
+                fps_text = f"{self.args.record_fps:g}"
+                badge_diameter = max(
+                    24, painter.fontMetrics().horizontalAdvance(fps_text) + 12
+                )
+                badge = QtCore.QRectF(8, 8, badge_diameter, badge_diameter)
                 painter.setBrush(QtGui.QColor(255, 0, 0))
                 painter.setPen(QtCore.Qt.NoPen)
-                painter.drawEllipse(QtCore.QPoint(20, 20), 8, 8)
+                painter.drawEllipse(badge)
+                painter.setPen(QtGui.QColor(255, 255, 255))
+                painter.drawText(badge, QtCore.Qt.AlignCenter, fps_text)
             if self.locked_R is not None:
                 margin = 12
                 padding_x = 8
