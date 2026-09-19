@@ -119,7 +119,13 @@ def color_to_hex(color):
 
 # The record accepts a renderer and an arguments object
 # For more information about renderers refer to GsplatRenderer from the project as an example
-def run(renderer, args):
+def run(renderer, args, extension=None):
+    """Run the shared recorder GUI.
+
+    ``extension`` may customize camera initialization and frame rendering, and
+    may contribute one additional settings menu. Ordinary recorder behavior
+    remains here so extensions automatically receive future features.
+    """
     # Imports happen here for extra snappiness when passing bad arguments
     import queue
     import threading
@@ -477,6 +483,9 @@ def run(renderer, args):
             self.position = np.array([0.0, 0.0, -3.0], dtype=np.float32)
             self.R = initial_rotation()
 
+            if extension is not None:
+                extension.initialize(self)
+
             self.pressed_keys = set()
             self.dragging = False
             self.last_arcball_vec = None
@@ -496,6 +505,17 @@ def run(renderer, args):
             self.timer = QtCore.QTimer(self)
             self.timer.timeout.connect(self.on_tick)
             self.timer.start(int(1000 / 60))
+
+        def render_frame(self, c2w, bg_color):
+            if extension is not None:
+                return extension.render(self, c2w, bg_color)
+            return self.renderer.render(
+                c2w,
+                self.K,
+                self.args.width,
+                self.args.height,
+                bg_color=bg_color,
+            )
 
         @staticmethod
         def _make_color_tensor(color, torch):
@@ -672,15 +692,12 @@ def run(renderer, args):
             c2w = build_c2w(self.position, self.R)
 
             with torch.no_grad():
-                image = self.renderer.render(
-                    c2w,
-                    self.K,
-                    self.args.width,
-                    self.args.height,
-                    bg_color=self.mark_color,
-                )
+                image = self.render_frame(c2w, self.mark_color)
             image_np = (image.cpu().numpy() * 255).astype(np.uint8)
-            self._current_qimage = self._to_qimage(image_np)
+            display_np = image_np.copy()
+            if extension is not None:
+                extension.decorate_image(self, display_np, c2w)
+            self._current_qimage = self._to_qimage(display_np)
 
             if self.recording and now - self.last_record_time >= self.record_tick:
                 self.last_record_time = now
@@ -693,13 +710,7 @@ def run(renderer, args):
                     self.save_queue.put((path, image_np.copy()))
 
                 with torch.no_grad():
-                    image = self.renderer.render(
-                        c2w,
-                        self.K,
-                        self.args.width,
-                        self.args.height,
-                        bg_color=self.unmarked_bg_color,
-                    )
+                    image = self.render_frame(c2w, self.unmarked_bg_color)
                 unmarked_np = (image.cpu().numpy() * 255).astype(np.uint8)
                 path = os.path.join(
                     self.args.unmarked_dir,
@@ -766,7 +777,8 @@ def run(renderer, args):
     class MainWindow(QtWidgets.QMainWindow):
         def __init__(self, renderer, args, save_queue):
             super().__init__()
-            self.setWindowTitle("Gaussian Splat Viewer")
+            title = getattr(extension, "window_title", "Gaussian Splat Viewer")
+            self.setWindowTitle(title)
 
             self.render_widget = RenderWidget(renderer, args, save_queue, self)
             self.setCentralWidget(self.render_widget)
@@ -774,6 +786,11 @@ def run(renderer, args):
             self.output_menu = OutputMenu(self.render_widget, self)
             self.rendering_menu = RenderingMenu(self.render_widget, self)
             self.controls_menu = ControlsMenu(self.render_widget, self)
+            self.extension_menu = None
+            if extension is not None:
+                self.extension_menu = extension.create_menu(
+                    self.render_widget, self, QtCore, QtGui, QtWidgets
+                )
 
             self.toolbar = QtWidgets.QToolBar("Options", self)
             self.toolbar.setMovable(False)
@@ -799,6 +816,14 @@ def run(renderer, args):
                 lambda: self._toggle_menu(self.controls_menu, self.controls_btn)
             )
             self.toolbar.addWidget(self.controls_btn)
+
+            if self.extension_menu is not None:
+                self.extension_btn = QtWidgets.QToolButton(self.toolbar)
+                self.extension_btn.setText(extension.menu_label)
+                self.extension_btn.clicked.connect(
+                    lambda: self._toggle_menu(self.extension_menu, self.extension_btn)
+                )
+                self.toolbar.addWidget(self.extension_btn)
 
             self.apply_window_size()
 

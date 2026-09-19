@@ -42,9 +42,7 @@ def load_ply_to_splats(path, device="cuda"):
 
 
 class GsplatRenderer:
-    bg_pink = torch.tensor(
-        [1.0, 0.0, 1.0], device="cuda", dtype=torch.float32
-    ).unsqueeze(0)
+    bg_pink = (1.0, 0.0, 1.0)
 
     def __init__(self, ply_path: str):
         self.splats = load_ply_to_splats(ply_path)
@@ -71,19 +69,20 @@ class GsplatRenderer:
                 _ = self.render(c2w, K, width, height)
         torch.cuda.synchronize()
 
-    def render(self, c2w, K, width, height, bg_color=bg_pink):
-        """
-        c2w: (4,4) camera-to-world matrix
-        K:   (3,3) intrinsics matrix
-        self.splats: dict with means, quats, scales, opacities, sh0, shN
-                    (as returned by load_ply_to_splats)
-        """
+    def _rasterize(self, c2w, K, width, height, bg_color, render_mode):
         device = self.splats["means"].device
         c2w = torch.as_tensor(c2w, dtype=torch.float32, device=device)
         K = torch.as_tensor(K, dtype=torch.float32, device=device)
+        bg_color = torch.as_tensor(bg_color, dtype=torch.float32, device=device)
+        if bg_color.ndim == 1:
+            bg_color = bg_color.unsqueeze(0)
+        if bg_color.shape != (1, 3):
+            raise ValueError(
+                f"bg_color must have shape (3,) or (1, 3), got {tuple(bg_color.shape)}"
+            )
         viewmat = c2w.inverse()
 
-        render_colors, _, _ = rasterization(
+        render_out, _, _ = rasterization(
             self.splats["means"],
             self.quats_normalized,
             self.splats["scales"].exp(),
@@ -96,8 +95,25 @@ class GsplatRenderer:
             packed=False,
             sh_degree=self.sh_degree,
             backgrounds=bg_color,
+            render_mode=render_mode,
         )
-        return render_colors[0, ..., :3].clamp(0, 1)
+
+        return render_out[0]
+
+    def render_with_depth(self, c2w, K, width, height, bg_color=bg_pink):
+        """Render RGB and expected depth for compositing extensions."""
+        render_out = self._rasterize(
+            c2w, K, width, height, bg_color, render_mode="RGB+ED"
+        )
+        rgb = render_out[..., :3].clamp(0, 1)
+        depth = render_out[..., 3:4]
+        depth = torch.where(depth == 0, 100.0, depth)
+        return rgb, depth
+
+    def render(self, c2w, K, width, height, bg_color=bg_pink):
+        """Render an RGB image using the regular, lower-cost rasterization path."""
+        render_out = self._rasterize(c2w, K, width, height, bg_color, render_mode="RGB")
+        return render_out[..., :3].clamp(0, 1)
 
     def approximate_world_up(self):
         means = self.splats["means"]

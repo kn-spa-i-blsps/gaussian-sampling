@@ -1,11 +1,10 @@
 import argparse
 import os
 
-from gaussiansampler.gui import recorder
 from gaussiansampler.utils.colors import parse_color
 
 
-def main():
+def build_parser():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("splat_path", type=str, help="Path to the .ply file.")
@@ -64,7 +63,16 @@ def main():
         default=1.0,
         help="Scale factor for the display window. The actual window will be (width*scale) x (height*scale), with the rendered output stretched to fit. Recording is still saved at the original (width, height) resolution.",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main(argv=None, *, renderer_factory=None, recorder_extension=None):
+    """Run the recorder, optionally replacing its renderer and GUI extension.
+
+    Water-Splatting uses these two extension points so it inherits the complete
+    ``gs-record`` CLI and GUI instead of maintaining a fork of either one.
+    """
+    args = build_parser().parse_args(argv)
     import sys
 
     if args.width <= 0 or args.height <= 0:
@@ -79,7 +87,12 @@ def main():
         print(f"Error: splat file does not exist: {args.splat_path}")
         sys.exit(1)
 
-    from gaussiansampler.sampling.gsplat_renderer import GsplatRenderer
+    if renderer_factory is None:
+        from gaussiansampler.sampling.gsplat_renderer import GsplatRenderer
 
-    renderer = GsplatRenderer(args.splat_path)
-    recorder.run(renderer, args)
+        renderer_factory = GsplatRenderer
+
+    from gaussiansampler.gui import recorder
+
+    renderer = renderer_factory(args.splat_path)
+    recorder.run(renderer, args, extension=recorder_extension)

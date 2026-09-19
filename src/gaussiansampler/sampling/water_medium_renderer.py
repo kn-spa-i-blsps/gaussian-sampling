@@ -1,3 +1,5 @@
+"""Neural renderer for the Water-Splatting medium field."""
+
 import torch
 from nerfstudio.field_components.encodings import SHEncoding
 from nerfstudio.field_components.mlp import MLP
