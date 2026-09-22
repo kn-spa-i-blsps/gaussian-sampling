@@ -304,6 +304,12 @@ def run(renderer, args, extension=None):
                 QtGui.QDoubleValidator(0.0001, 1_000_000.0, 6, self)
             )
             top_form.addRow("Record FPS:", self.record_fps_edit)
+
+            self.render_fps_edit = QtWidgets.QLineEdit()
+            self.render_fps_edit.setValidator(
+                QtGui.QDoubleValidator(0.0001, 1_000_000.0, 6, self)
+            )
+            top_form.addRow("Render FPS:", self.render_fps_edit)
             outer.addLayout(top_form)
 
             subform_box = QtWidgets.QGroupBox("Resolution")
@@ -345,6 +351,7 @@ def run(renderer, args, extension=None):
             # Apply on Enter or when focus leaves the field.  Requiring Enter
             # alone made it easy to record at the previous FPS accidentally.
             self.record_fps_edit.editingFinished.connect(self._apply_record_fps)
+            self.render_fps_edit.editingFinished.connect(self._apply_render_fps)
             self.resolution_submit_btn.clicked.connect(self._apply_resolution)
             self.marked_color_edit.returnPressed.connect(self._apply_marked_color)
             self.unmarked_color_edit.returnPressed.connect(self._apply_unmarked_color)
@@ -405,6 +412,7 @@ def run(renderer, args, extension=None):
         def refresh_from_state(self):
             rw = self.render_widget
             self.record_fps_edit.setText(str(rw.args.record_fps))
+            self.render_fps_edit.setText(str(rw.args.render_fps))
             self.width_edit.setText(str(rw.args.width))
             self.height_edit.setText(str(rw.args.height))
             self.scale_edit.setText(str(rw.args.window_scale))
@@ -419,6 +427,15 @@ def run(renderer, args, extension=None):
                 return
             if fps > 0:
                 self.render_widget.set_record_fps(fps)
+
+        def _apply_render_fps(self):
+            text = self.render_fps_edit.text().strip()
+            try:
+                fps = float(text)
+            except ValueError:
+                return
+            if fps > 0:
+                self.render_widget.set_render_fps(fps)
 
         def _apply_resolution(self):
             w_text = self.width_edit.text().strip()
@@ -504,7 +521,7 @@ def run(renderer, args, extension=None):
 
             self.timer = QtCore.QTimer(self)
             self.timer.timeout.connect(self.on_tick)
-            self.timer.start(int(1000 / 60))
+            self.set_render_fps(args.render_fps)
 
         def render_frame(self, c2w, bg_color):
             if extension is not None:
@@ -536,6 +553,12 @@ def run(renderer, args, extension=None):
         def set_record_fps(self, fps):
             self.args.record_fps = fps
             self.record_tick = 1.0 / fps
+
+        def set_render_fps(self, fps):
+            self.args.render_fps = fps
+            # QTimer accepts a millisecond interval.  A minimum of one avoids
+            # turning very high target rates into a zero-interval busy timer.
+            self.timer.start(max(1, round(1000 / fps)))
 
         def set_mark_color(self, color):
             self.args.mark_color = color

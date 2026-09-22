@@ -30,6 +30,12 @@ def build_parser():
         help="Frames per second for recording.",
     )
     parser.add_argument(
+        "--render_fps",
+        type=float,
+        default=60.0,
+        help="Target frames per second for the interactive renderer.",
+    )
+    parser.add_argument(
         "--record_dir",
         type=str,
         default="recording",
@@ -81,6 +87,10 @@ def main(argv=None, *, renderer_factory=None, recorder_extension=None):
 
     if args.window_scale <= 0:
         print(f"Error: invalid window scale: {args.window_scale}")
+        sys.exit(1)
+
+    if args.render_fps <= 0:
+        print(f"Error: render FPS must be positive: {args.render_fps}")
         sys.exit(1)
 
     if not os.path.isfile(args.splat_path):
