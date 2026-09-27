@@ -29,7 +29,6 @@ class AutoSampler:
         learning_rate=0.1,
         distance_vol=0.5,
         min_constant=0.5,
-        max_direction_attempts=100,
     ):
         self.gaussian_means = torch.as_tensor(gaussians["means"]).detach().cpu()
         self.renderer = renderer
@@ -43,7 +42,6 @@ class AutoSampler:
         self._learning_rate = learning_rate
         self._distance_vol = distance_vol
         self._min_constant = min_constant
-        self._max_direction_attempts = max_direction_attempts
 
         if self.granularity <= 0:
             raise ValueError("granularity must be positive")
@@ -51,8 +49,8 @@ class AutoSampler:
             raise ValueError("render dimensions must be positive")
         if not 0 < self.fov_deg < 180:
             raise ValueError("fov_deg must be between 0 and 180")
-        if self._max_direction_attempts <= 0:
-            raise ValueError("max_direction_attempts must be positive")
+        if not 0 <= self._learning_rate < 1:
+            raise ValueError("learning_rate must be in the range [0, 1)")
 
         # Safe init with a large value from the scene
         self._default_dist = self.get_scene_diameter()
@@ -113,40 +111,41 @@ class AutoSampler:
     def next_step(self):
         target = self.get_random_spot()
 
-        for _ in range(self._max_direction_attempts):
-            # Sample a direction uniformly on the unit sphere.
-            z = random.uniform(-1.0, 1.0)
-            azimuth = random.uniform(0.0, 2 * math.pi)
-            radial = math.sqrt(1 - z * z)
-            direction = np.array(
-                [radial * math.cos(azimuth), radial * math.sin(azimuth), z],
-                dtype=np.float32,
+        # Sample one direction uniformly on the unit sphere.
+        z = random.uniform(-1.0, 1.0)
+        azimuth = random.uniform(0.0, 2 * math.pi)
+        radial = math.sqrt(1 - z * z)
+        direction = np.array(
+            [radial * math.cos(azimuth), radial * math.sin(azimuth), z],
+            dtype=np.float32,
+        )
+
+        minimum_distance = self._min_constant * self._default_dist
+        minimum_pose = self._camera_pose(target, direction, minimum_distance)
+        if self._score_pose(minimum_pose) < self.score_threshold:
+            self._default_dist *= 1 - self._learning_rate
+            return []
+
+        # The randomized distance starts above the learned average.
+        distance = self._default_dist * (1 + self._distance_vol * random.random())
+        lower_bound = self._min_constant * distance
+        distances = np.linspace(distance, lower_bound, num=self.granularity)
+
+        successful_poses = []
+        highest_successful_distance = None
+        for candidate_distance in distances:
+            pose = self._camera_pose(target, direction, candidate_distance)
+            if self._score_pose(pose) >= self.score_threshold:
+                successful_poses.append(pose)
+                if highest_successful_distance is None:
+                    highest_successful_distance = candidate_distance
+
+        if successful_poses:
+            # Move the learned distance only toward the farthest successful view.
+            self._default_dist += self._learning_rate * (
+                highest_successful_distance - self._default_dist
             )
+            return successful_poses
 
-            minimum_distance = self._min_constant * self._default_dist
-            minimum_pose = self._camera_pose(target, direction, minimum_distance)
-            if self._score_pose(minimum_pose) < self.score_threshold:
-                continue
-
-            # The randomized distance starts above the learned average.
-            distance = self._default_dist * (1 + self._distance_vol * random.random())
-            lower_bound = self._min_constant * distance
-            distances = np.linspace(distance, lower_bound, num=self.granularity)
-
-            successful_poses = []
-            highest_successful_distance = None
-            for candidate_distance in distances:
-                pose = self._camera_pose(target, direction, candidate_distance)
-                if self._score_pose(pose) >= self.score_threshold:
-                    successful_poses.append(pose)
-                    if highest_successful_distance is None:
-                        highest_successful_distance = candidate_distance
-
-            if successful_poses:
-                # Move the learned distance only toward the farthest successful view.
-                self._default_dist += self._learning_rate * (
-                    highest_successful_distance - self._default_dist
-                )
-                return successful_poses
-
+        self._default_dist *= 1 - self._learning_rate
         return []
