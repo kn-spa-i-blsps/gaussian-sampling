@@ -41,12 +41,18 @@ def build_parser():
     parser.add_argument("-H", "--height", type=int, default=600)
     parser.add_argument("--fov", type=float, default=60.0)
     parser.add_argument(
+        "--alpha",
+        type=float,
+        default=0.01,
+        help="Marked-color sensitivity for the scorer (default: 0.01).",
+    )
+    parser.add_argument(
         "--score-threshold",
         type=float,
         default=0.99,
         help=(
             "Minimum scorer quality (higher means less mark-color coverage; "
-            "default: 0.5)."
+            "default: 0.99)."
         ),
     )
     return parser
@@ -83,10 +89,12 @@ def main(argv=None):
         raise SystemExit("Image dimensions must be positive")
     if not 0 < args.fov < 180:
         raise SystemExit("FOV must be between 0 and 180 degrees")
+    if args.alpha <= 0:
+        raise SystemExit("Alpha must be positive")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     renderer = GsplatRenderer(str(args.splat_path))
-    scorer = MarkedScorer()
+    scorer = MarkedScorer(alpha=args.alpha)
     sampler = AutoSampler(
         renderer,
         scorer,
