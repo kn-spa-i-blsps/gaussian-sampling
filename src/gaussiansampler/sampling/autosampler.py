@@ -25,7 +25,7 @@ class AutoSampler:
         width=800,
         height=600,
         fov_deg=60.0,
-        score_threshold=0.0,
+        score_threshold=0.5,
         learning_rate=0.1,
         distance_vol=0.5,
         min_constant=0.5,

@@ -24,6 +24,7 @@ gs-record-water = "gaussiansampler.scripts.record_water:main"
 gs-record = "gaussiansampler.scripts.record:main"
 gs-filter = "gaussiansampler.scripts.filter:main"
 gs-score = "gaussiansampler.scripts.score:main"
+gs-sample = "gaussiansampler.scripts.sample:main"
 [build-system]
 requires = ["setuptools>=72.0.0,<=73.0.0"]
 build-backend = "setuptools.build_meta"
