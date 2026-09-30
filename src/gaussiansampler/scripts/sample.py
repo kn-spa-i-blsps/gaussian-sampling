@@ -112,6 +112,8 @@ def main(argv=None):
             if (step + 1) % 100 == 0:
                 print(f"Dry run: {step + 1}/{args.dry_run_steps} steps")
 
+        scored_before = sampler.scored_count
+        rejected_before = sampler.rejected_count
         image_count = 0
         for step in range(args.save_steps):
             poses = sampler.next_step()
@@ -125,7 +127,11 @@ def main(argv=None):
                 f"saved {image_count} images"
             )
 
+    scored = sampler.scored_count - scored_before
+    rejected = sampler.rejected_count - rejected_before
+    rejected_percent = 100 * rejected / scored if scored else 0.0
     print(f"Saved {image_count} images to {args.output_dir}")
+    print(f"Rejected by filter: {rejected}/{scored} ({rejected_percent:.1f}%)")
 
 
 if __name__ == "__main__":

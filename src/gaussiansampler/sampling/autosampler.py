@@ -39,6 +39,8 @@ class AutoSampler:
         self.height = height
         self.fov_deg = fov_deg
         self.score_threshold = score_threshold
+        self.scored_count = 0
+        self.rejected_count = 0
         self._learning_rate = learning_rate
         self._distance_vol = distance_vol
         self._min_constant = min_constant
@@ -106,7 +108,11 @@ class AutoSampler:
             image = np.rint(np.clip(image, 0, 1) * 255).astype(np.uint8)
         else:
             image = np.clip(image, 0, 255).astype(np.uint8)
-        return float(self.hole_scorer.score_image(image))
+        score = float(self.hole_scorer.score_image(image))
+        self.scored_count += 1
+        if score < self.score_threshold:
+            self.rejected_count += 1
+        return score
 
     def next_step(self):
         target = self.get_random_spot()
