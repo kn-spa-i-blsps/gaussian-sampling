@@ -16,7 +16,9 @@ class WaterRecorderExtension:
         render_widget.R = c2w[:3, :3].astype(np.float32)
         render_widget.center_target = center
         render_widget.orbit_radius = radius
-        render_widget.render_mode = 0
+        render_widget.render_mode = (
+            2 if render_widget.renderer.water_renderer is not None else 0
+        )
         render_widget.show_cameras = False
 
     def render(self, render_widget, c2w, bg_color):
