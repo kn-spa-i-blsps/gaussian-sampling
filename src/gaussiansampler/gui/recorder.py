@@ -5,6 +5,8 @@ Controls:
   W / A / S / D        - move forward / left / back / right
   Q / E                - move down / up (camera-local, no world "up" needed)
   Left mouse + drag     - look around (arcball/trackball; supports free roll)
+  Mouse wheel          - lens zoom in / out
+  Middle mouse click   - reset zoom to 1.0x
   SPACE                - toggle frame recording
   ESC                  - quit
 
@@ -16,6 +18,7 @@ menu pauses rendering and recording until it is closed.
 import math
 import os
 import time
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -123,8 +126,10 @@ def run(renderer, args, extension=None):
     """Run the shared recorder GUI.
 
     ``extension`` may customize camera initialization and frame rendering, and
-    may contribute one additional settings menu. Ordinary recorder behavior
-    remains here so extensions automatically receive future features.
+    may contribute one additional settings menu. Its render and decoration
+    hooks receive a snapshot of render state on the render worker thread.
+    Ordinary recorder behavior remains here so extensions automatically
+    receive future features.
     """
     # Imports happen here for extra snappiness when passing bad arguments
     import queue
@@ -259,6 +264,8 @@ def run(renderer, args, extension=None):
             controls_form.addRow("W / A / S / D:", QtWidgets.QLabel("Move"))
             controls_form.addRow("Q / E:", QtWidgets.QLabel("Move down / up"))
             controls_form.addRow("Left mouse + drag:", QtWidgets.QLabel("Look around"))
+            controls_form.addRow("Mouse wheel:", QtWidgets.QLabel("Lens zoom"))
+            controls_form.addRow("Middle click:", QtWidgets.QLabel("Reset zoom"))
             controls_form.addRow("Space:", QtWidgets.QLabel("Toggle recording"))
             controls_form.addRow("X:", QtWidgets.QLabel("Lock/unlock rotation"))
             controls_form.addRow("Esc:", QtWidgets.QLabel("Quit"))
@@ -469,8 +476,67 @@ def run(renderer, args, extension=None):
                 return
             self.render_widget.set_unmarked_color(color)
 
+    class RenderWorker(QtCore.QObject):
+        render_requested = QtCore.Signal(object)
+        frame_ready = QtCore.Signal(object)
+
+        def __init__(self, renderer, save_queue):
+            super().__init__()
+            self.renderer = renderer
+            self.save_queue = save_queue
+            self.render_requested.connect(
+                self.render, QtCore.Qt.ConnectionType.QueuedConnection
+            )
+
+        @QtCore.Slot(object)
+        def render(self, request):
+            try:
+                c2w = request["c2w"]
+                context = request["context"]
+                with torch.no_grad():
+                    if extension is not None:
+                        image = extension.render(context, c2w, request["mark_color"])
+                    else:
+                        image = self.renderer.render(
+                            c2w,
+                            request["K"],
+                            request["width"],
+                            request["height"],
+                            bg_color=request["mark_color"],
+                        )
+                image_np = (image.detach().cpu().numpy() * 255).astype(np.uint8)
+                display_np = image_np.copy()
+                if extension is not None:
+                    extension.decorate_image(context, display_np, c2w)
+
+                if request["unmarked_path"] is not None:
+                    with torch.no_grad():
+                        if extension is not None:
+                            unmarked = extension.render(
+                                context, c2w, request["unmarked_color"]
+                            )
+                        else:
+                            unmarked = self.renderer.render(
+                                c2w,
+                                request["K"],
+                                request["width"],
+                                request["height"],
+                                bg_color=request["unmarked_color"],
+                            )
+                    unmarked_np = (unmarked.detach().cpu().numpy() * 255).astype(
+                        np.uint8
+                    )
+                    if request["marked_path"] is not None:
+                        self.save_queue.put((request["marked_path"], image_np))
+                    self.save_queue.put((request["unmarked_path"], unmarked_np))
+
+                self.frame_ready.emit((display_np, None))
+            except (RuntimeError, ValueError, TypeError) as error:
+                message = f"{type(error).__name__}: {error}"
+                self.frame_ready.emit((None, message))
+
     class RenderWidget(QtWidgets.QWidget):
-        """Owns the render loop, camera state, input handling, and recording."""
+        """Owns camera state and UI input; renders asynchronously."""
 
         def __init__(self, renderer, args, save_queue, parent=None):
             super().__init__(parent)
@@ -496,6 +562,9 @@ def run(renderer, args, extension=None):
                 self.args.unmarked_color, torch
             )
 
+            self.zoom_factor = 1.0
+            self.target_zoom_factor = 1.0
+            self.pending_wheel_steps = 0.0
             self.K = build_K(args.width, args.height, args.fov)
             self.position = np.array([0.0, 0.0, -3.0], dtype=np.float32)
             self.R = initial_rotation()
@@ -519,20 +588,17 @@ def run(renderer, args, extension=None):
             self._current_qimage = None
             self._last_tick_time = time.time()
 
+            self.render_pending = False
+            self.render_thread = QtCore.QThread(self)
+            self.render_worker = RenderWorker(renderer, save_queue)
+            self.render_worker.moveToThread(self.render_thread)
+            self.render_worker.frame_ready.connect(self._on_render_finished)
+            self.render_thread.finished.connect(self.render_worker.deleteLater)
+            self.render_thread.start()
+
             self.timer = QtCore.QTimer(self)
             self.timer.timeout.connect(self.on_tick)
             self.set_render_fps(args.render_fps)
-
-        def render_frame(self, c2w, bg_color):
-            if extension is not None:
-                return extension.render(self, c2w, bg_color)
-            return self.renderer.render(
-                c2w,
-                self.K,
-                self.args.width,
-                self.args.height,
-                bg_color=bg_color,
-            )
 
         @staticmethod
         def _make_color_tensor(color, torch):
@@ -572,7 +638,7 @@ def run(renderer, args, extension=None):
             self.args.width = width
             self.args.height = height
             self.args.window_scale = scale
-            self.K = build_K(width, height, self.args.fov)
+            self._update_intrinsics()
             # Mouse coordinates are interpreted in the displayed render
             # rectangle.  Changing its size while a drag is active would
             # leave last_arcball_vec in the coordinate system of the old
@@ -582,7 +648,46 @@ def run(renderer, args, extension=None):
             if window is not None:
                 window.apply_window_size()
 
+        def _update_intrinsics(self):
+            self.K = build_K(self.args.width, self.args.height, self.args.fov)
+            self.K[0, 0] *= self.zoom_factor
+            self.K[1, 1] *= self.zoom_factor
+
+        def set_zoom(self, zoom_factor, *, immediate=False):
+            self.target_zoom_factor = min(20.0, max(0.1, zoom_factor))
+            if immediate:
+                self.pending_wheel_steps = 0.0
+                self.zoom_factor = self.target_zoom_factor
+                self._update_intrinsics()
+            self.update()
+
+        def _advance_zoom(self, dt):
+            if self.zoom_factor == self.target_zoom_factor:
+                return
+
+            remaining = math.log(self.target_zoom_factor / self.zoom_factor)
+            fraction = 1.0 - math.exp(-min(dt, 0.1) / 0.12)
+            self.zoom_factor *= math.exp(remaining * fraction)
+            if abs(math.log(self.target_zoom_factor / self.zoom_factor)) < 0.001:
+                self.zoom_factor = self.target_zoom_factor
+            self._update_intrinsics()
+
         # -- pause control ----------------------------------------------------
+        def _on_render_finished(self, result):
+            self.render_pending = False
+            image_np, error = result
+            if error is not None:
+                print("Render failed:")
+                print(error)
+                return
+            self._current_qimage = self._to_qimage(image_np)
+            self.update()
+
+        def shutdown(self):
+            self.timer.stop()
+            self.render_thread.quit()
+            self.render_thread.wait()
+
         def set_paused(self, paused):
             """Pausing stops the render/recording tick but keeps the last
             rendered frame on screen and leaves input state untouched."""
@@ -626,6 +731,10 @@ def run(renderer, args, extension=None):
         def mousePressEvent(self, event):
             if self.paused:
                 return
+            if event.button() == QtCore.Qt.MiddleButton:
+                self.set_zoom(1.0, immediate=True)
+                event.accept()
+                return
             if event.button() == QtCore.Qt.LeftButton:
                 self.dragging = True
                 pos = event.pos()
@@ -642,6 +751,19 @@ def run(renderer, args, extension=None):
             if event.button() == QtCore.Qt.LeftButton:
                 self.dragging = False
                 self.last_arcball_vec = None
+
+        def wheelEvent(self, event):
+            if self.paused:
+                return
+            delta = event.angleDelta().y()
+            if delta:
+                self.pending_wheel_steps += delta / 120.0
+            else:
+                pixel_delta = event.pixelDelta().y()
+                if not pixel_delta:
+                    return
+                self.pending_wheel_steps += pixel_delta / 40.0
+            event.accept()
 
         def mouseMoveEvent(self, event):
             if self.paused:
@@ -685,6 +807,13 @@ def run(renderer, args, extension=None):
             now = time.time()
             dt = now - self._last_tick_time
             self._last_tick_time = now
+            if self.pending_wheel_steps:
+                zoom_step = 1.1**self.pending_wheel_steps
+                self.target_zoom_factor = min(
+                    20.0, max(0.1, self.target_zoom_factor * zoom_step)
+                )
+                self.pending_wheel_steps = 0.0
+            self._advance_zoom(dt)
 
             curR = self.R
             if self.locked_R is not None:
@@ -712,35 +841,49 @@ def run(renderer, args, extension=None):
             if norm > 0:
                 self.position += (move / norm) * self.args.move_speed * dt
 
-            c2w = build_c2w(self.position, self.R)
-
-            with torch.no_grad():
-                image = self.render_frame(c2w, self.mark_color)
-            image_np = (image.cpu().numpy() * 255).astype(np.uint8)
-            display_np = image_np.copy()
-            if extension is not None:
-                extension.decorate_image(self, display_np, c2w)
-            self._current_qimage = self._to_qimage(display_np)
-
-            if self.recording and now - self.last_record_time >= self.record_tick:
-                self.last_record_time = now
-
-                if self.enable_marked:
-                    path = os.path.join(
-                        self.args.marked_dir,
-                        f"{self.file_prefix}{self.frame_idx:05d}.png",
-                    )
-                    self.save_queue.put((path, image_np.copy()))
-
-                with torch.no_grad():
-                    image = self.render_frame(c2w, self.unmarked_bg_color)
-                unmarked_np = (image.cpu().numpy() * 255).astype(np.uint8)
-                path = os.path.join(
-                    self.args.unmarked_dir,
-                    f"{self.file_prefix}{self.frame_idx:05d}.png",
+            if not self.render_pending:
+                c2w = build_c2w(self.position, self.R)
+                K = self.K.copy()
+                width = self.args.width
+                height = self.args.height
+                record_frame = (
+                    self.recording and now - self.last_record_time >= self.record_tick
                 )
-                self.save_queue.put((path, unmarked_np.copy()))
-                self.frame_idx += 1
+                frame_idx = self.frame_idx
+                prefix = self.file_prefix
+                marked_path = None
+                unmarked_path = None
+                if record_frame:
+                    self.last_record_time = now
+                    if self.enable_marked:
+                        marked_path = os.path.join(
+                            self.args.marked_dir, f"{prefix}{frame_idx:05d}.png"
+                        )
+                    unmarked_path = os.path.join(
+                        self.args.unmarked_dir, f"{prefix}{frame_idx:05d}.png"
+                    )
+                    self.frame_idx += 1
+
+                context = SimpleNamespace(
+                    renderer=self.renderer,
+                    args=SimpleNamespace(**vars(self.args)),
+                    K=K.copy(),
+                    render_mode=getattr(self, "render_mode", 0),
+                    show_cameras=getattr(self, "show_cameras", False),
+                )
+                request = {
+                    "c2w": c2w,
+                    "K": K,
+                    "width": width,
+                    "height": height,
+                    "context": context,
+                    "mark_color": self.mark_color,
+                    "unmarked_color": self.unmarked_bg_color,
+                    "marked_path": marked_path,
+                    "unmarked_path": unmarked_path,
+                }
+                self.render_pending = True
+                self.render_worker.render_requested.emit(request)
 
             self.update()
 
@@ -771,6 +914,22 @@ def run(renderer, args, extension=None):
                 painter.drawEllipse(badge)
                 painter.setPen(QtGui.QColor(255, 255, 255))
                 painter.drawText(badge, QtCore.Qt.AlignCenter, fps_text)
+            margin = 12
+            padding_x = 8
+            padding_y = 4
+            zoom_text = f"{self.zoom_factor:.1f}x"
+            zoom_size = painter.fontMetrics().size(0, zoom_text)
+            zoom_badge = QtCore.QRectF(
+                self.width() - zoom_size.width() - 2 * padding_x - margin,
+                self.height() - zoom_size.height() - 2 * padding_y - margin,
+                zoom_size.width() + 2 * padding_x,
+                zoom_size.height() + 2 * padding_y,
+            )
+            painter.setPen(QtCore.Qt.NoPen)
+            painter.setBrush(QtGui.QColor(0, 0, 0, 170))
+            painter.drawRoundedRect(zoom_badge, 4, 4)
+            painter.setPen(QtGui.QColor(255, 255, 255))
+            painter.drawText(zoom_badge, QtCore.Qt.AlignCenter, zoom_text)
             if self.locked_R is not None:
                 margin = 12
                 padding_x = 8
@@ -885,7 +1044,7 @@ def run(renderer, args, extension=None):
             menu.hideEvent = hide_event
 
         def closeEvent(self, event):
-            self.render_widget.timer.stop()
+            self.render_widget.shutdown()
             super().closeEvent(event)
 
     save_queue = queue.Queue()
