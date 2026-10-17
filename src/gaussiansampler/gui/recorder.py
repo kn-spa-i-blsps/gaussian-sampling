@@ -551,10 +551,14 @@ def run(renderer, args, extension=None):
             # Output-related state (mirrors args.record_dir / args.mark_color
             # but kept mutable and independent so the menus can update them
             # live without needing to reach back through argparse).
+            self.enable_marked = getattr(args, "enable_marked", True)
             self.args.marked_dir = os.path.join(args.record_dir, "marked")
-            self.args.unmarked_dir = os.path.join(args.record_dir, "unmarked")
+            self.args.unmarked_dir = (
+                os.path.join(args.record_dir, "unmarked")
+                if self.enable_marked
+                else args.record_dir
+            )
             self.args.unmarked_color = (0, 0, 0)
-            self.enable_marked = True
             self.file_prefix = "image"
 
             self.mark_color = self._make_color_tensor(args.mark_color, torch)
@@ -579,9 +583,6 @@ def run(renderer, args, extension=None):
             self.recording = False
             self.paused = False
             self.frame_idx = 0
-            os.makedirs(self.args.marked_dir, exist_ok=True)
-            os.makedirs(self.args.unmarked_dir, exist_ok=True)
-
             self.record_tick = 1.0 / args.record_fps
             self.last_record_time = time.time()
 
@@ -610,11 +611,9 @@ def run(renderer, args, extension=None):
         # -- live setters used by the menus ---------------------------------
         def set_marked_dir(self, path):
             self.args.marked_dir = path
-            os.makedirs(self.args.marked_dir, exist_ok=True)
 
         def set_unmarked_dir(self, path):
             self.args.unmarked_dir = path
-            os.makedirs(self.args.unmarked_dir, exist_ok=True)
 
         def set_record_fps(self, fps):
             self.args.record_fps = fps
@@ -862,6 +861,9 @@ def run(renderer, args, extension=None):
                     unmarked_path = os.path.join(
                         self.args.unmarked_dir, f"{prefix}{frame_idx:05d}.png"
                     )
+                    if marked_path is not None:
+                        os.makedirs(self.args.marked_dir, exist_ok=True)
+                    os.makedirs(self.args.unmarked_dir, exist_ok=True)
                     self.frame_idx += 1
 
                 context = SimpleNamespace(

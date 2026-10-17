@@ -17,6 +17,7 @@ _RECORDER_CONFIG_TYPES = {
     "FOV": float,
     "WORKERS": int,
     "MARK_COLOR": parse_color,
+    "ENABLE_MARKED": "bool",
     "WINDOW_SCALE": float,
 }
 
@@ -151,6 +152,12 @@ def build_parser():
         type=parse_color,
         default=config.get("MARK_COLOR", (255, 0, 255)),
         help="Color for marking recorded frames (RGB; config: MARK_COLOR).",
+    )
+    parser.add_argument(
+        "--enable_marked",
+        action=argparse.BooleanOptionalAction,
+        default=config.get("ENABLE_MARKED", True),
+        help="Save marked frames (config: ENABLE_MARKED).",
     )
     parser.add_argument(
         "--window_scale",
