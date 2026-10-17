@@ -79,7 +79,11 @@ def build_parser():
             "explicit command-line options take precedence."
         )
     )
-    parser.add_argument("splat_path", type=str, help="Path to the .ply file.")
+    parser.add_argument(
+        "splat_path",
+        type=str,
+        help="Path to a .ply file or a directory containing splat.ply.",
+    )
     parser.add_argument(
         "--move_speed",
         type=float,
@@ -186,6 +190,9 @@ def main(argv=None, *, renderer_factory=None, recorder_extension=None):
     if args.render_fps <= 0:
         print(f"Error: render FPS must be positive: {args.render_fps}")
         sys.exit(1)
+
+    if os.path.isdir(args.splat_path):
+        args.splat_path = os.path.join(args.splat_path, "splat.ply")
 
     if not os.path.isfile(args.splat_path):
         print(f"Error: splat file does not exist: {args.splat_path}")
