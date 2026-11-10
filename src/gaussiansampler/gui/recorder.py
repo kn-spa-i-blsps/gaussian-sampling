@@ -8,6 +8,7 @@ Controls:
   Mouse wheel          - lens zoom in / out
   Middle mouse click   - reset zoom to 1.0x
   SPACE                - toggle frame recording
+  P                    - capture one frame
   ESC                  - quit
 
 The top bar has two menu buttons ("Output" and "Rendering") that open forms
@@ -267,6 +268,7 @@ def run(renderer, args, extension=None):
             controls_form.addRow("Mouse wheel:", QtWidgets.QLabel("Lens zoom"))
             controls_form.addRow("Middle click:", QtWidgets.QLabel("Reset zoom"))
             controls_form.addRow("Space:", QtWidgets.QLabel("Toggle recording"))
+            controls_form.addRow("P:", QtWidgets.QLabel("Capture one frame"))
             controls_form.addRow("X:", QtWidgets.QLabel("Lock/unlock rotation"))
             controls_form.addRow("Esc:", QtWidgets.QLabel("Quit"))
             layout.addWidget(keyboard_controls)
@@ -581,6 +583,8 @@ def run(renderer, args, extension=None):
             self.last_arcball_vec = None
 
             self.recording = False
+            self.pending_photos = 0
+            self.photo_flash_started = None
             self.paused = False
             self.frame_idx = 0
             self.record_tick = 1.0 / args.record_fps
@@ -720,6 +724,9 @@ def run(renderer, args, extension=None):
                 self.recording = not self.recording
                 print("Recording:", "ON" if self.recording else "OFF")
                 return
+            if event.key() == QtCore.Qt.Key_P:
+                self.pending_photos += 1
+                return
             self.pressed_keys.add(event.key())
 
         def keyReleaseEvent(self, event):
@@ -848,12 +855,17 @@ def run(renderer, args, extension=None):
                 record_frame = (
                     self.recording and now - self.last_record_time >= self.record_tick
                 )
+                take_photo = self.pending_photos > 0
                 frame_idx = self.frame_idx
                 prefix = self.file_prefix
                 marked_path = None
                 unmarked_path = None
-                if record_frame:
-                    self.last_record_time = now
+                if record_frame or take_photo:
+                    if record_frame:
+                        self.last_record_time = now
+                    if take_photo:
+                        self.pending_photos -= 1
+                        self.photo_flash_started = time.monotonic()
                     if self.enable_marked:
                         marked_path = os.path.join(
                             self.args.marked_dir, f"{prefix}{frame_idx:05d}.png"
@@ -905,6 +917,13 @@ def run(renderer, args, extension=None):
                 render_w, render_h, offset_x, offset_y = self._render_rect()
                 target = QtCore.QRectF(offset_x, offset_y, render_w, render_h)
                 painter.drawImage(target, self._current_qimage)
+            if self.photo_flash_started is not None:
+                elapsed = time.monotonic() - self.photo_flash_started
+                if elapsed < 0.3:
+                    alpha = int(35 * (1 - elapsed / 0.3))
+                    painter.fillRect(self.rect(), QtGui.QColor(255, 255, 255, alpha))
+                else:
+                    self.photo_flash_started = None
             if self.recording:
                 fps_text = f"{self.args.record_fps:g}"
                 badge_diameter = max(
