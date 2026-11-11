@@ -16,3 +16,4 @@ build/
 !README.md
 !.pre-commit-config.yaml
 !recorder.example.conf
+!LICENSE

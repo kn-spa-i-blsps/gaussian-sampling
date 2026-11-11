@@ -3,6 +3,15 @@
 A Python toolkit for Gaussian Splatting data augmentation and interactive
 water-splatting rendering.
 
+## License and attribution
+
+This project is licensed under the [Apache License 2.0](LICENSE).
+The water renderer builds on [WaterSplatting](https://github.com/water-splatting/water-splatting),
+by Huapeng Li, Wenxuan Song, Tianao Xu, Alexandre Elsig, and Jonas Kulhanek,
+which is licensed under the [Apache License 2.0](https://github.com/water-splatting/water-splatting/blob/main/LICENSE).
+The renderer has been adapted for this project's viewer and checkpoint loading.
+For research using WaterSplatting, please cite the authors' [paper](https://water-splatting.github.io/).
+
 The project aims to streamline the process of data augumentation using gaussian splatting 
 by automating sampling and image filtering.
 ## Installation
