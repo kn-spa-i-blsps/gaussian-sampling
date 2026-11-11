@@ -6,11 +6,24 @@ water-splatting rendering.
 ## License and attribution
 
 This project is licensed under the [Apache License 2.0](LICENSE).
-The water renderer builds on [WaterSplatting](https://github.com/water-splatting/water-splatting),
-by Huapeng Li, Wenxuan Song, Tianao Xu, Alexandre Elsig, and Jonas Kulhanek,
-which is licensed under the [Apache License 2.0](https://github.com/water-splatting/water-splatting/blob/main/LICENSE).
-The renderer has been adapted for this project's viewer and checkpoint loading.
-For research using WaterSplatting, please cite the authors' [paper](https://water-splatting.github.io/).
+The optional underwater renderer adapts the neural medium-field rendering
+approach and checkpoint interface from [WaterSplatting](https://github.com/water-splatting/water-splatting).
+The Gaussian-splat loading, rasterization, viewer integration, and compositing
+code in this repository are implemented here; the upstream WaterSplatting
+repository is not bundled as a dependency. WaterSplatting was created by
+Huapeng Li, Wenxuan Song, Tianao Xu, Alexandre Elsig, and Jonas Kulhanek and
+is licensed under the [Apache License 2.0](https://github.com/water-splatting/water-splatting/blob/main/LICENSE).
+
+For research using this renderer or the WaterSplatting method, cite:
+
+```bibtex
+@article{li2025watersplatting,
+  title={{W}ater{S}platting: Fast Underwater {3D} Scene Reconstruction using Gaussian Splatting},
+  author={Li, Huapeng and Song, Wenxuan and Xu, Tianao and Elsig, Alexandre and Kulhanek, Jonas},
+  journal={3DV},
+  year={2025}
+}
+```
 
 The project aims to streamline the process of data augumentation using gaussian splatting 
 by automating sampling and image filtering.
