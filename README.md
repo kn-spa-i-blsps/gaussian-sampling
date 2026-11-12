@@ -28,6 +28,43 @@ And later run scripts like this:
 uv run <script name>
 ```
 
+### Water renderer: tiny-cuda-nn
+
+The water medium renderer uses the PyTorch bindings of
+[tiny-cuda-nn](https://github.com/NVlabs/tiny-cuda-nn). Install the project
+first using one of the methods above, then install the `water` extra in the
+same environment. This builds a CUDA extension and requires Git, a CUDA-capable
+NVIDIA GPU and driver, a CUDA toolkit with `nvcc`, and a compatible C++ build
+toolchain. The CUDA toolkit must be compatible with the installed PyTorch
+build. Check `nvcc --version` and `python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"`
+before building.
+
+With the conda environment activated:
+
+```bash
+python -m pip install --no-build-isolation -e '.[water]'
+```
+
+For the uv environment:
+
+```bash
+uv pip install --no-build-isolation -e '.[water]'
+```
+
+Build isolation is disabled because the extension's build needs the PyTorch
+already installed in the target environment. The extra pins the tiny-cuda-nn
+source revision found in the existing development environment; it does not
+pin PyTorch, Nerfstudio, CUDA or their transitive dependencies. A matching
+revision alone therefore does not guarantee an identical environment. Rebuild
+tiny-cuda-nn after changing PyTorch or CUDA. To check the installation:
+
+```bash
+python -c "import torch, tinycudann; print('CUDA available:', torch.cuda.is_available()); print('tiny-cuda-nn:', tinycudann.__file__)"
+```
+
+For uv, run the check with `.venv/bin/python` (or activate `.venv` first).
+An import check does not verify checkpoint compatibility or the rendered output.
+
 ## Scripts
 The project includes the following scripts which are ready for practical use:
 

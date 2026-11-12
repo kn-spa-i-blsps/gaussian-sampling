@@ -17,6 +17,10 @@ dependencies = [
     "gsplat",
     "nerfstudio",
 ]
+[project.optional-dependencies]
+water = [
+    "tinycudann @ git+https://github.com/NVlabs/tiny-cuda-nn.git@3daa6e5b8b8e0fa17971a1a20acfbb3754494b38#subdirectory=bindings/torch",
+]
 [project.scripts]
 gs-record-water = "gaussiansampler.scripts.record_water:main"
 gs-record = "gaussiansampler.scripts.record:main"
