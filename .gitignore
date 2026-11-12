@@ -14,6 +14,7 @@ build/
 !.gitignore
 !pyproject.toml
 !README.md
+!THIRD_PARTY_NOTICE.md
 !.pre-commit-config.yaml
 !recorder.example.conf
 !LICENSE
