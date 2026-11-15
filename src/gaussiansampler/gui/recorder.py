@@ -588,10 +588,10 @@ def run(renderer, args, extension=None):
             self.paused = False
             self.frame_idx = 0
             self.record_tick = 1.0 / args.record_fps
-            self.last_record_time = time.time()
+            self.last_record_time = time.monotonic()
 
             self._current_qimage = None
-            self._last_tick_time = time.time()
+            self._last_tick_time = time.monotonic()
 
             self.render_pending = False
             self.render_thread = QtCore.QThread(self)
@@ -693,19 +693,25 @@ def run(renderer, args, extension=None):
 
         def set_paused(self, paused):
             """Pausing stops the render/recording tick but keeps the last
-            rendered frame on screen and leaves input state untouched."""
+            rendered frame on screen."""
             self.paused = paused
+            self._last_tick_time = time.monotonic()
             if paused:
-                self._last_tick_time = time.time()
+                self.reset_input_state()
             else:
-                self._last_tick_time = time.time()
-                self.last_record_time = time.time()
+                self.last_record_time = self._last_tick_time
 
         # -- input events --------------------------------------------------
         def reset_input_state(self):
             self.pressed_keys.clear()
             self.dragging = False
             self.last_arcball_vec = None
+
+        def focusOutEvent(self, event):
+            # Releases can go to another window after alt-tab or a popup.
+            # Discard held input rather than resuming a stale key or drag.
+            self.reset_input_state()
+            super().focusOutEvent(event)
 
         def keyPressEvent(self, event):
             if self.paused:
@@ -774,6 +780,10 @@ def run(renderer, args, extension=None):
         def mouseMoveEvent(self, event):
             if self.paused:
                 return
+            if not event.buttons() & QtCore.Qt.LeftButton:
+                self.dragging = False
+                self.last_arcball_vec = None
+                return
             if self.dragging:
                 pos = event.pos()
                 render_w, render_h, offset_x, offset_y = self._render_rect()
@@ -810,8 +820,10 @@ def run(renderer, args, extension=None):
             if self.paused:
                 return
 
-            now = time.time()
-            dt = now - self._last_tick_time
+            now = time.monotonic()
+            # A delayed UI callback must not integrate the entire stall as
+            # movement. Reset the baseline even when the elapsed time is capped.
+            dt = min(max(now - self._last_tick_time, 0.0), 0.1)
             self._last_tick_time = now
             if self.pending_wheel_steps:
                 zoom_step = 1.1**self.pending_wheel_steps
