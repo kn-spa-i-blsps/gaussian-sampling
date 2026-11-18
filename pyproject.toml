@@ -10,7 +10,7 @@ keywords = ["gaussian-splatting"]
 dependencies = [
     "numpy>=1.26.0",
     "pillow>=10.0.0",
-    "torch>=2.6",
+    "torch>=2.6,<=2.12",
     "plyfile>=1.0.0",
     "pyside6>=6.7.0",
     "pygame>=2.5.0",

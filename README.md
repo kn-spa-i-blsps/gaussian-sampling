@@ -65,9 +65,11 @@ already installed in the target environment. Install the build tools there too;
 the setuptools range above matches the project's build requirements and provides
 `pkg_resources`, which the pinned tiny-cuda-nn setup script imports.
 
-The extra pins the tiny-cuda-nn source revision found in the existing development environment; it does not
-pin PyTorch, Nerfstudio, CUDA or their transitive dependencies. A matching
-revision alone therefore does not guarantee an identical environment. Rebuild
+The project limits PyTorch to versions from 2.6 through 2.12 because newer
+versions are incompatible with tiny-cuda-nn's C++ code. The water extra pins
+the tiny-cuda-nn source revision, but Nerfstudio, CUDA and transitive
+dependencies are not pinned. A matching revision alone therefore does not
+guarantee an identical environment. Rebuild
 tiny-cuda-nn after changing PyTorch or CUDA. To check the installation:
 
 ```bash
