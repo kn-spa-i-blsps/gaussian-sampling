@@ -1,104 +1,58 @@
 # Gaussian Sampling & Water-Splatting Viewer
 
-A Python toolkit for Gaussian Splatting data augmentation and interactive
-water-splatting rendering.
+View Gaussian splats, render new images, and filter them by background color.
+The water viewer adds a learned underwater medium.
 
-See [THIRD_PARTY_NOTICE.md](THIRD_PARTY_NOTICE.md) for required attribution and
-research citation information.
+## Install
 
-The project aims to streamline the process of data augumentation using gaussian splatting
-by automating sampling and image filtering.
-
-## Installation
-
-The best way is to install either through a conda or uv environment.
-
-### Conda
-
-Use this if you already have a conda environment for related projects with some of the heavier libraries installed, which might save you disk space, avoiding installing duplicate packages.
-To install the package, run `pip install -e .` in the root directory of the project. \
-If there are problems with 'backend that doesn't support PEP 660', consider updating pip with `python -m pip install --upgrade pip`.
-
-### uv
-
-Best for keeping the project isolated from others, this is the easiest way.\
-Just run the following commands in the root directory of the project:
+Run from the project directory:
 
 ```bash
 uv venv
 uv pip install -e .
 ```
 
-And later run scripts like this:
-
-```bash
-uv run <script name>
-```
-
-### Water renderer: tiny-cuda-nn
-
-The water medium renderer uses the PyTorch bindings of
-[tiny-cuda-nn](https://github.com/NVlabs/tiny-cuda-nn). Install the project
-first using one of the methods above, then install the `water` extra in the
-same environment. This builds a CUDA extension and requires Git, a CUDA-capable
-NVIDIA GPU and driver, a CUDA toolkit with `nvcc`, and a compatible C++ build
-toolchain. The CUDA toolkit must be compatible with the installed PyTorch
-build. Check `nvcc --version` and `python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"`
-before building.
-
-With the conda environment activated:
-
-```bash
-python -m pip install 'setuptools>=72,<=73' wheel ninja
-python -m pip install --no-build-isolation -e '.[water]'
-```
-
-For the uv environment:
+For the water viewer, also install [tiny-cuda-nn](https://github.com/NVlabs/tiny-cuda-nn):
 
 ```bash
 uv pip install 'setuptools>=72,<=73' wheel ninja
 uv pip install --no-build-isolation -e '.[water]'
 ```
 
-Build isolation is disabled because the extension's build needs the PyTorch
-already installed in the target environment. Install the build tools there too;
-the setuptools range above matches the project's build requirements and provides
-`pkg_resources`, which the pinned tiny-cuda-nn setup script imports.
+This needs Git, an NVIDIA GPU and driver, a CUDA toolkit with `nvcc` matching
+PyTorch's CUDA version, and a C++ compiler. Rebuild tiny-cuda-nn after changing
+PyTorch or CUDA.
 
-The project limits PyTorch to versions from 2.6 through 2.12 because newer
-versions are incompatible with tiny-cuda-nn's C++ code. The water extra pins
-the tiny-cuda-nn source revision, but Nerfstudio, CUDA and transitive
-dependencies are not pinned. A matching revision alone therefore does not
-guarantee an identical environment. Rebuild
-tiny-cuda-nn after changing PyTorch or CUDA. To check the installation:
+## Use
+
+Open a splat and record images with a free camera:
 
 ```bash
-python -c "import torch, tinycudann; print('CUDA available:', torch.cuda.is_available()); print('tiny-cuda-nn:', tinycudann.__file__)"
+uv run gs-record /path/to/splat.ply
 ```
 
-For uv, run the check with `.venv/bin/python` (or activate `.venv` first).
-An import check does not verify checkpoint compatibility or the rendered output.
+Open the water viewer:
 
-## Scripts
+```bash
+uv run gs-record-water /path/to/scene/splat.ply
+```
 
-The project includes the following scripts which are ready for practical use:
+Put the medium's `.ckpt` file next to the `.ply`. The viewer loads the first
+checkpoint it finds. Use **Mode** to switch between the splat, water, and combined
+render. Optional camera markers come from `colmap/sparse/0/` next to the splat.
 
-- `gs-record-water`: Opens the interactive Water-Splatting Viewer. It renders
-  a `.ply` splat with a learned underwater medium, automatically loading the
-  first `.ckpt` checkpoint and optional COLMAP camera data located alongside
-  the splat.
+To set defaults for either recorder, copy [recorder.example.conf](recorder.example.conf)
+to `recorder.conf` in the directory you run the command from. Edit it to set camera
+controls, resolution, recording FPS, and output settings. Command-line options
+override these defaults.
 
-    ```bash
-    gs-record-water /path/to/scene/splat.ply
-    ```
+Score rendered images by how much background color they contain:
 
-    Use the **Mode** menu to switch among the raw splat, the water medium alone,
-    and the combined render. The combined modes require a `.ckpt` file in the
-    same directory as the `.ply`; camera markers are loaded from
-    `colmap/sparse/0/` when available.
+```bash
+uv run gs-score /path/to/images
+```
 
-- `gs-record`: Allows exploring splats imported from .ply files
-  and generating new images with a manual free camera.
-- `score.py`: Scores images based on the presence of a certain color.
-  The intended for this is to render your splats with a very distinct background color
-  which doesn't appear in the images themselves.
+The default background color is magenta. Use `--mark_color` to change it.
+Run any command with `--help` for options.
+
+See [THIRD_PARTY_NOTICE.md](THIRD_PARTY_NOTICE.md) for attribution and research citations.
