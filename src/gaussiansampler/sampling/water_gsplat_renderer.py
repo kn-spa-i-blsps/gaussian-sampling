@@ -121,6 +121,43 @@ class WaterGsplatRenderer(GsplatRenderer):
                 f"\nNo .ckpt file in the folder {base_dir}; water modes are unavailable."
             )
 
+    def _medium_parameters(self, c2w, K, width, height):
+        device = self.splats["means"].device
+        c2w = torch.as_tensor(c2w, dtype=torch.float32, device=device)
+        K = torch.as_tensor(K, dtype=torch.float32, device=device)
+        return self.water_renderer.get_medium_parameters(c2w, K, width, height)
+
+    def render_medium(self, c2w, K, width, height, bg_color=GsplatRenderer.bg_pink):
+        """Render only the learned water medium; background color is unused."""
+        medium_rgb, _, _ = self._medium_parameters(c2w, K, width, height)
+        return medium_rgb.clamp(0.0, 1.0)
+
+    def render_underwater(self, c2w, K, width, height, bg_color=GsplatRenderer.bg_pink):
+        """Composite the splat with water attenuation and backscatter.
+
+        The medium supplies the background, so bg_color is unused.
+        """
+        device = self.splats["means"].device
+        black = torch.zeros(3, device=device)
+        white = torch.ones(3, device=device)
+        image_black, depth_expected = self.render_with_depth(
+            c2w, K, width, height, bg_color=black
+        )
+        image_white = self.render(c2w, K, width, height, bg_color=white)
+
+        alpha = 1.0 - (image_white - image_black).mean(dim=-1, keepdim=True).clamp(0, 1)
+        true_depth = depth_expected / alpha.clamp(min=1e-5)
+        true_depth = torch.where(alpha < 1e-3, 10.0, true_depth)
+
+        medium_rgb, sigma_back, sigma_att = self._medium_parameters(
+            c2w, K, width, height
+        )
+        transmission_att = torch.exp(-sigma_att * true_depth)
+        transmission_back = torch.exp(-sigma_back * true_depth)
+        object_color = image_black * transmission_att
+        medium_color = medium_rgb * (1.0 - alpha * transmission_back)
+        return (object_color + medium_color).clamp(0.0, 1.0)
+
     def get_centered_c2w(self):
         """
         Calculates the camera's starting position. Uses the first Colmap camera loaded.

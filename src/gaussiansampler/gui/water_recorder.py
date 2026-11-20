@@ -1,7 +1,6 @@
 """Water-Splatting additions for the shared recorder GUI."""
 
 import numpy as np
-import torch
 
 
 class WaterRecorderExtension:
@@ -23,51 +22,20 @@ class WaterRecorderExtension:
 
     def render(self, render_widget, c2w, bg_color):
         renderer = render_widget.renderer
-        args = render_widget.args
         mode = render_widget.render_mode
-
         if mode == 0:
-            return renderer.render(
-                c2w,
-                render_widget.K,
-                args.width,
-                args.height,
-                bg_color=bg_color,
-            )
-
-        device = renderer.splats["means"].device
-        c2w_t = torch.as_tensor(c2w, dtype=torch.float32, device=device)
-        K_t = torch.as_tensor(render_widget.K, dtype=torch.float32, device=device)
-
-        if mode == 1:
-            medium_rgb, _, _ = renderer.water_renderer.get_medium_parameters(
-                c2w_t, K_t, args.width, args.height
-            )
-            return medium_rgb.clamp(0.0, 1.0)
-
-        black = torch.zeros(3, device=device)
-        white = torch.ones(3, device=device)
-        image_black, depth_expected = renderer.render_with_depth(
-            c2w, render_widget.K, args.width, args.height, bg_color=black
+            render = renderer.render
+        elif mode == 1:
+            render = renderer.render_medium
+        else:
+            render = renderer.render_underwater
+        return render(
+            c2w,
+            render_widget.K,
+            render_widget.args.width,
+            render_widget.args.height,
+            bg_color=bg_color,
         )
-        image_white = renderer.render(
-            c2w, render_widget.K, args.width, args.height, bg_color=white
-        )
-
-        alpha = 1.0 - (image_white - image_black).mean(dim=-1, keepdim=True).clamp(0, 1)
-        true_depth = depth_expected / alpha.clamp(min=1e-5)
-        true_depth = torch.where(alpha < 1e-3, 10.0, true_depth)
-
-        medium_rgb, sigma_back, sigma_att = (
-            renderer.water_renderer.get_medium_parameters(
-                c2w_t, K_t, args.width, args.height
-            )
-        )
-        transmission_att = torch.exp(-sigma_att * true_depth)
-        transmission_back = torch.exp(-sigma_back * true_depth)
-        object_color = image_black * transmission_att
-        medium_color = medium_rgb * (1.0 - alpha * transmission_back)
-        return (object_color + medium_color).clamp(0.0, 1.0)
 
     def decorate_image(self, render_widget, image, c2w):
         """Draw optional COLMAP camera markers on the display-only image."""
